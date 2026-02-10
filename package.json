@@ -1,0 +1,27 @@
+{
+  "name": "iris-portfolio",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@sanity/image-url": "^2.0.3",
+    "hls.js": "^1.6.15",
+    "next": "16.1.6",
+    "next-sanity": "^12.1.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "sanity": "^5.9.0",
+    "sanity-plugin-mux-input": "^2.14.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4"
+  }
+}
