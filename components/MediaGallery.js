@@ -33,14 +33,13 @@ export default function MediaGallery({ project }) {
   const thumbnailHeights = [60, 75, 90];
 
   return (
-    <div className="w-full p-4">
+    <div className="w-full p-4 mb-40">
       <div className="mb-2">
-        <span>{project.title}</span>
-        <span className="text-muted ml-2">{project.year}</span>
+        <span>{project.title}. {project.year}.</span>.
       </div>
 
       {/* Main display area */}
-      <div className="w-full" style={{ height: "65vh" }}>
+      <div className="w-full" style={{ height: "73vh" }}>
         {activeItem._type === "mux.video" && activeItem.playbackId ? (
           <VideoPlayer
             key={videoKey}
@@ -61,7 +60,7 @@ export default function MediaGallery({ project }) {
 
       {/* Thumbnail row */}
       {media.length > 1 && (
-        <div className="flex items-start gap-1 mt-2">
+        <div className="flex items-start gap-1 mt-1">
           {media.map((item, index) => {
             const height = thumbnailHeights[index % thumbnailHeights.length];
             const isActive = index === activeIndex;

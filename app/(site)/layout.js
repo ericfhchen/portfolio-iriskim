@@ -1,12 +1,19 @@
-import Sidebar from "@/components/Sidebar";
+import { client } from "@/sanity/lib/client";
+import { siteSettingsQuery, allProjectsQuery } from "@/sanity/lib/queries";
+import SiteLayoutClient from "@/components/SiteLayoutClient";
 
-export default function SiteLayout({ children }) {
+export default async function SiteLayout({ children }) {
+  const [settings, projects] = await Promise.all([
+    client.fetch(siteSettingsQuery),
+    client.fetch(allProjectsQuery),
+  ]);
+
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="ml-[16.666%] w-[83.333%] min-h-screen">
-        {children}
-      </main>
-    </div>
+    <SiteLayoutClient
+      artistName={settings?.artistName || "iris kim"}
+      projects={projects || []}
+    >
+      {children}
+    </SiteLayoutClient>
   );
 }

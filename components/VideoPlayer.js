@@ -132,7 +132,7 @@ export default function VideoPlayer({ playbackId, autoPlay = false }) {
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="w-full">
+    <div className="h-full">
       <video
         ref={videoRef}
         poster={poster}
@@ -142,7 +142,7 @@ export default function VideoPlayer({ playbackId, autoPlay = false }) {
         onLoadedMetadata={handleLoadedMetadata}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
-        className="w-full h-full object-contain cursor-pointer"
+        className="h-full object-contain cursor-pointer"
       />
 
       <div className="flex items-center gap-2 mt-1">

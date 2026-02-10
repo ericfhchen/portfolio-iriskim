@@ -4,12 +4,21 @@ import { useRef, useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { urlFor } from "@/sanity/lib/image";
+import { useHover } from "@/context/HoverContext";
 
 export default function GridTile({ project, widthPercent, aspectRatio, onClick }) {
   const videoRef = useRef(null);
   const tileRef = useRef(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+
+  const { hoveredProject, hoverSource, setTileHover, clearHover } = useHover();
+
+  const projectSlug = project.slug.current;
+  const isThisHovered = hoveredProject === projectSlug;
+  const someOtherHovered = hoveredProject && hoveredProject !== projectSlug;
+  // Should autoplay when sidebar hovers this project
+  const shouldAutoplay = hoverSource === "sidebar" && isThisHovered && isNearViewport;
 
   const muxPlaybackId = project.muxPlaybackId;
   const videoSrc = muxPlaybackId
@@ -30,6 +39,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
 
   const handleMouseEnter = () => {
     setIsHovering(true);
+    setTileHover(projectSlug);
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch(() => {});
@@ -38,11 +48,23 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
 
   const handleMouseLeave = () => {
     setIsHovering(false);
+    clearHover();
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
   };
+
+  // Autoplay when sidebar hovers this project
+  useEffect(() => {
+    if (shouldAutoplay && videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(() => {});
+    } else if (!shouldAutoplay && !isHovering && videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
+  }, [shouldAutoplay, isHovering]);
 
   const handleClick = (e) => {
     if (onClick) {
@@ -55,10 +77,19 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
     ? urlFor(project.coverImage).width(800).quality(80).url()
     : null;
 
+  // Show video when this tile is hovered OR when sidebar hovers this project
+  const showVideo = isHovering || shouldAutoplay;
+  // Show title when this tile is hovered OR when sidebar highlights this project
+  const showTitle = isHovering || isThisHovered;
+
   return (
     <div
       ref={tileRef}
-      style={{ width: `${widthPercent}%` }}
+      style={{
+        width: `${widthPercent}%`,
+        opacity: someOtherHovered ? 0.3 : 1,
+        transition: "opacity 300ms"
+      }}
       className="flex-shrink-0 px-[2px]"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -66,7 +97,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
       {/* Title above tile - visible on hover */}
       <div
         className={`mb-[2px] h-5 transition-opacity duration-300 ${
-          isHovering ? "opacity-100" : "opacity-0"
+          showTitle ? "opacity-100" : "opacity-0"
         }`}
       >
         <span>{project.title}</span>
@@ -84,7 +115,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
             alt={project.title}
             fill
             className={`object-cover transition-opacity duration-300 ${
-              isHovering && videoSrc ? "opacity-0" : "opacity-100"
+              showVideo && videoSrc ? "opacity-0" : "opacity-100"
             }`}
             sizes={`${widthPercent}vw`}
           />
@@ -99,7 +130,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
             playsInline
             preload="none"
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-              isHovering ? "opacity-100" : "opacity-0"
+              showVideo ? "opacity-100" : "opacity-0"
             }`}
           />
         )}
@@ -108,7 +139,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
       {/* Title and year below tile - visible on hover */}
       <div
         className={`mt-[2px] h-5 flex justify-between transition-opacity duration-300 ${
-          isHovering ? "opacity-100" : "opacity-0"
+          showTitle ? "opacity-100" : "opacity-0"
         }`}
       >
         <span>{project.title}</span>
