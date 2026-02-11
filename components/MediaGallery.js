@@ -35,7 +35,7 @@ export default function MediaGallery({ project }) {
   return (
     <div className="w-full p-4 mb-40">
       <div className="mb-2">
-        <span>{project.title}. {project.year}.</span>.
+        <span>{project.title}. {project.year}.</span>
       </div>
 
       {/* Main display area */}

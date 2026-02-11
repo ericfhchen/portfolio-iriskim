@@ -1,0 +1,18 @@
+/* Site-specific styles (not applied to Sanity Studio) */
+
+* {
+  text-transform: lowercase;
+}
+
+html, body {
+  background: #ffffff;
+  color: #000000;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 9px;
+  line-height: 1;
+}
+
+h1, h2, h3, h4, h5, h6, p, a, span, li, label, input, button, div {
+  font-size: 9px;
+  line-height: 1;
+}

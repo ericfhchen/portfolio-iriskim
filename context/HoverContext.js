@@ -11,7 +11,6 @@ export function HoverProvider({ children }) {
   const [hoverSource, setHoverSource] = useState(null);
 
   const setTileHover = useCallback((projectSlug) => {
-    console.log("setTileHover:", projectSlug);
     setHoveredProject(projectSlug);
     setHoverSource(projectSlug ? "tile" : null);
   }, []);

@@ -1,0 +1,297 @@
+/* Custom Sanity Studio Styles */
+
+/* Brand colors */
+:root {
+  --brand: #464861;
+  --brand-light: #61677A;
+  --brand-dark: #1E222E;
+  color-scheme: dark !important;
+}
+
+/* Text selection */
+::selection {
+  background-color: var(--brand-dark) !important;
+}
+
+*::selection {
+  background-color: var(--brand-dark) !important;
+}
+
+html,
+body,
+#sanity {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+}
+
+/* Apply Helvetica Neue globally */
+* {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+}
+
+/* Fixed font sizes - scaled down */
+html, body, #sanity {
+  font-size: 11px !important;
+}
+
+h1, [data-ui="Heading"][data-size="5"] {
+  font-size: 16px !important;
+}
+
+h2, [data-ui="Heading"][data-size="4"] {
+  font-size: 14px !important;
+}
+
+h3, [data-ui="Heading"][data-size="3"] {
+  font-size: 12px !important;
+}
+
+h4, h5, h6,
+[data-ui="Heading"][data-size="2"],
+[data-ui="Heading"][data-size="1"],
+[data-ui="Heading"][data-size="0"] {
+  font-size: 11px !important;
+}
+
+[data-ui="Text"],
+[data-ui="Label"],
+[data-ui="MenuItem"],
+[data-ui="Tab"],
+button,
+input,
+select,
+textarea,
+span,
+label,
+p,
+div,
+a {
+  font-size: 11px !important;
+}
+
+/* Smaller text variants */
+[data-ui="Text"][data-size="0"],
+[data-ui="Text"][data-size="1"],
+[data-ui="Label"][data-size="0"],
+[data-ui="Label"][data-size="1"] {
+  font-size: 9px !important;
+}
+
+/* Remove uppercase/small-caps styling, keep default Sanity font sizes */
+[data-ui="Text"],
+[data-ui="Label"],
+[data-ui="Card"],
+[data-ui="Box"],
+[data-ui="Stack"],
+[data-ui="Flex"],
+[data-ui="MenuButton"] span,
+[data-ui="MenuItem"] span,
+[data-ui="Tab"] span,
+nav span,
+button,
+span,
+label,
+p,
+div {
+  text-transform: none !important;
+  font-variant: normal !important;
+  font-feature-settings: normal !important;
+  letter-spacing: normal !important;
+}
+
+/* Hide Sanity logo in navbar */
+[data-testid="studio-logo"],
+[data-ui="NavDrawer"] svg[data-sanity-icon="sanity-logo"],
+a[href*="sanity.io"] svg,
+button svg[data-sanity-icon="sanity-logo"] {
+  display: none !important;
+}
+
+/* Hide the IP placeholder/initials logo */
+[data-testid="studio-logo"],
+[data-ui="Avatar"],
+[data-ui="Navbar"] > div:first-child a[href="/studio"],
+[data-ui="Navbar"] [data-testid="workspace-menu-button"] {
+  display: none !important;
+}
+
+/* Hide any "new project" or promo popups */
+[data-ui="Popover"][data-testid*="promo"],
+[data-ui="Dialog"][data-testid*="announcement"],
+[role="dialog"][aria-label*="What's new"],
+[data-ui="Toast"][data-testid*="announcement"] {
+  display: none !important;
+}
+
+/* Hide help/resources button that shows Sanity branding */
+button[aria-label="Resources"],
+[data-testid="resources-button"] {
+  display: none !important;
+}
+
+/* Remove the small "Sanity" branding link if present */
+a[href="https://www.sanity.io"],
+a[href*="sanity.io/docs"] {
+  display: none !important;
+}
+
+/* Drag handle icon */
+svg[data-sanity-icon="drag-handle"] {
+  color: var(--brand) !important;
+}
+
+svg[data-sanity-icon="drag-handle"]:hover {
+  color: var(--brand-light) !important;
+}
+
+/* Preserve status indicator dot colors */
+[data-status="published"] {
+  background-color: #3ab667 !important;
+}
+
+[data-status="draft"] {
+  background-color: #f5a623 !important;
+}
+
+[data-status="error"] {
+  background-color: #f03e2f !important;
+}
+
+/* Dark panel backgrounds - exclude status tones */
+[data-ui="Card"]:not([data-tone="positive"]):not([data-tone="caution"]):not([data-tone="critical"]):not([data-tone="transparent"]),
+[data-ui="Dialog"],
+[data-ui="Popover"],
+[data-ui="Menu"] {
+  background-color: #000000 !important;
+}
+
+/* Input fields */
+[data-ui="TextInput"],
+[data-ui="TextArea"],
+[data-ui="Select"] {
+  background-color: #2a2a2a !important;
+  color: #ffffff !important;
+  border-color: #3a3a3a !important;
+}
+
+/* Focus states with brand color */
+[data-ui="TextInput"]:focus,
+[data-ui="TextArea"]:focus,
+[data-ui="Select"]:focus,
+button:focus {
+  outline-color: var(--brand) !important;
+  border-color: var(--brand) !important;
+}
+
+/* Brand color for selected/active states - project cards/rows */
+/* Exclude status indicators (published/draft/error) */
+[data-selected="true"]:not([data-tone="positive"]):not([data-tone="caution"]):not([data-tone="critical"]),
+[aria-selected="true"]:not([data-tone="positive"]):not([data-tone="caution"]):not([data-tone="critical"]),
+[data-active="true"]:not([data-tone="positive"]):not([data-tone="caution"]):not([data-tone="critical"]) {
+  background-color: var(--brand-dark) !important;
+  color:#ffffff !important;
+}
+
+/* Selected pane items and cards with primary tone */
+[data-ui="PaneItem"][data-selected],
+[data-ui="Card"][data-tone="primary"][data-selected],
+[data-ui="Card"][data-tone="primary"]:has([data-selected]),
+[data-ui="PaneItem"][data-tone="primary"],
+a[data-ui="PaneItem"][data-selected] {
+  background-color: var(--brand-dark) !important;
+  color: #ffffff !important;
+}
+
+/* Keep same color on hover for selected/active rows */
+[data-ui="PaneItem"][data-selected]:hover,
+[data-ui="Card"][data-tone="primary"][data-selected]:hover,
+[data-ui="Card"][data-tone="primary"]:has([data-selected]):hover,
+[data-ui="PaneItem"][data-tone="primary"]:hover,
+a[data-ui="PaneItem"][data-selected]:hover {
+  background-color: var(--brand-dark) !important;
+  color: #ffffff !important;
+}
+
+/* Links and interactive elements */
+a:not([data-ui]) {
+  color: var(--brand) !important;
+}
+
+/* Primary buttons */
+button[data-tone="primary"],
+[data-ui="Button"][data-tone="primary"] {
+  background-color: var(--brand) !important;
+  color: #ffffff !important;
+}
+
+button[data-tone="primary"]:hover,
+[data-ui="Button"][data-tone="primary"]:hover {
+  background-color: var(--brand-light) !important;
+  color: #ffffff !important;
+}
+
+/* Publish button */
+button[data-testid="action-publish"],
+[data-ui="Button"][data-testid="action-publish"] {
+  background-color: var(--brand) !important;
+  color: #ffffff !important;
+}
+
+button[data-testid="action-publish"]:hover,
+[data-ui="Button"][data-testid="action-publish"]:hover {
+  background-color: var(--brand-light) !important;
+  color: #ffffff !important;
+}
+
+/* Publish button disabled state */
+button[data-testid="action-publish"][data-disabled="true"],
+button[data-testid="action-publish"]:disabled,
+[data-ui="Button"][data-testid="action-publish"][data-disabled="true"],
+[data-ui="Button"][data-testid="action-publish"]:disabled {
+  background-color: #3a3a3a !important;
+  color: #666666 !important;
+  cursor: not-allowed !important;
+}
+
+button[data-testid="action-publish"][data-disabled="true"]:hover,
+button[data-testid="action-publish"]:disabled:hover,
+[data-ui="Button"][data-testid="action-publish"][data-disabled="true"]:hover,
+[data-ui="Button"][data-testid="action-publish"]:disabled:hover {
+  background-color: #3a3a3a !important;
+  color: #666666 !important;
+}
+
+/* Default/ghost buttons hover states */
+button[data-tone="default"]:hover,
+[data-ui="Button"][data-tone="default"]:hover,
+button:not([data-tone]):hover,
+[data-ui="Button"]:not([data-tone]):hover {
+  background-color: var(--brand) !important;
+  color: #ffffff !important;
+}
+
+/* Menu items hover */
+[data-ui="MenuItem"]:hover,
+[data-ui="MenuButton"]:hover {
+  background-color: var(--brand-dark) !important;
+  color: #ffffff !important;
+}
+
+/* Tab hover states */
+[data-ui="Tab"]:hover {
+  background-color: var(--brand-dark) !important;
+  color: #ffffff !important;
+}
+
+/* Card hover states - exclude status tones */
+[data-ui="Card"]:hover:not([data-as="button"]):not([data-tone="positive"]):not([data-tone="caution"]):not([data-tone="critical"]) {
+  border-color: var(--brand) !important;
+  color:#ffffff !important;
+}
+
+/* List item / document row hover - exclude status tones */
+[data-ui="Card"][data-as="button"]:hover:not([data-tone="positive"]):not([data-tone="caution"]):not([data-tone="critical"]) {
+  background-color: var(--brand-dark) !important;
+  color:#ffffff !important;
+}

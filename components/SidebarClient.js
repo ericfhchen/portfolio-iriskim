@@ -11,8 +11,6 @@ export default function SidebarClient({ artistName, projects }) {
   // When any hover is active (from tile or sidebar), mute non-hovered items
   const hasActiveHover = !!hoveredProject;
 
-  console.log("SidebarClient render:", "hoveredProject:", hoveredProject, "hasActiveHover:", hasActiveHover);
-
   return (
     <nav className="fixed top-0 left-0 h-screen w-1/6 p-4 flex flex-col gap-8 overflow-y-auto">
 

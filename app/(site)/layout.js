@@ -1,3 +1,4 @@
+import "@/app/site.css";
 import { client } from "@/sanity/lib/client";
 import { siteSettingsQuery, allProjectsQuery } from "@/sanity/lib/queries";
 import SiteLayoutClient from "@/components/SiteLayoutClient";

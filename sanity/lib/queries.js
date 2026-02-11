@@ -3,6 +3,7 @@ export const allProjectsQuery = `*[_type == "project"] | order(orderRank asc) {
   title,
   slug,
   year,
+  role,
   tileSize,
   coverImage,
   "coverAspectRatio": coverImage.asset->metadata.dimensions.aspectRatio,
