@@ -238,26 +238,18 @@ fetch(`https://api.mux.com/video/v1/assets/${assetId}`, {
 
 #### VideoPlayer.js (Main Player)
 - Uses HLS streaming: `https://stream.mux.com/${playbackId}.m3u8`
-- Uses hls.js for non-Safari browsers (Safari has native HLS)
-- Configured to force highest quality immediately (no adaptive bitrate ramp-up)
+- Uses hls.js for ALL browsers (including Safari) to force highest quality
+- Safari's native HLS uses ABR and doesn't allow forcing quality - must use hls.js
 - Desktop: Forces highest available quality
 - Mobile (≤768px): Caps at 1440p
 
 ##### HLS Quality Forcing
 
-**Critical**: Must detect Safari specifically, not just check `canPlayType('application/vnd.apple.mpegurl')`.
-Chrome returns "maybe" for this check but doesn't support HLS well natively.
+**Critical**: Use hls.js for ALL browsers, not just non-Safari.
+Safari's native HLS player uses adaptive bitrate and doesn't respect quality hints.
+The `?max_resolution=2160p` URL param is just a hint that Safari often ignores.
 
-```js
-// WRONG - Chrome returns "maybe" and uses native (low quality) HLS
-if (video.canPlayType("application/vnd.apple.mpegurl")) { ... }
-
-// CORRECT - Check for Safari specifically
-const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-if (isSafari && video.canPlayType("application/vnd.apple.mpegurl")) { ... }
-```
-
-For hls.js (non-Safari browsers):
+hls.js configuration:
 ```js
 hls = new Hls({
   autoStartLoad: false,
@@ -335,10 +327,10 @@ Get from: https://dashboard.mux.com/settings/api-access-tokens
 - Or re-upload after config is set
 
 #### Video starts at low quality (e.g., 404x270 instead of 2160x1440)
-- **Most likely:** Chrome is using native HLS instead of hls.js
-- The old code checked `canPlayType("application/vnd.apple.mpegurl")` - Chrome returns "maybe" (truthy)
-- **Fix:** Detect Safari specifically: `const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)`
-- Also ensure hls.js config: `autoStartLoad: false`, set level in `MANIFEST_PARSED`, call `attachMedia()` AFTER setting level
+- **Most likely:** Browser is using native HLS instead of hls.js
+- Native HLS (Safari, Chrome) uses adaptive bitrate and doesn't allow forcing quality
+- **Fix:** Always use hls.js for all browsers, never fall back to native HLS
+- Ensure hls.js config: `autoStartLoad: false`, set level in `MANIFEST_PARSED`, call `attachMedia()` AFTER setting level
 
 #### New uploads not getting MP4/4K
 - Config changes require cache clear and server restart

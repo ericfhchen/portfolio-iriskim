@@ -51,21 +51,9 @@ export default function VideoPlayer({
     };
     video.addEventListener("canplaythrough", handleCanPlayThrough);
 
-    // Check if this is Safari (not Chrome) - Safari has native HLS support
-    // Chrome returns "maybe" for canPlayType but doesn't actually support HLS well
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
-    if (isSafari && video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari supports HLS natively - use URL params to hint quality
-      // Note: Safari doesn't strictly enforce max_resolution, it's just a hint
-      const qualityParam = mobile ? "?max_resolution=1440p" : "?max_resolution=2160p";
-      video.src = src + qualityParam;
-      return () => {
-        video.removeEventListener("canplaythrough", handleCanPlayThrough);
-      };
-    }
-
-    // Dynamic import hls.js for non-Safari browsers
+    // Use hls.js for ALL browsers to force highest quality
+    // Safari's native HLS uses ABR and doesn't allow forcing quality
+    // hls.js works in Safari and gives us control over quality selection
     let hls;
     let targetLevel = -1;
 
