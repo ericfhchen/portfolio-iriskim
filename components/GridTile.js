@@ -6,7 +6,7 @@ import Link from "next/link";
 import { urlFor } from "@/sanity/lib/image";
 import { useHover } from "@/context/HoverContext";
 
-export default function GridTile({ project, widthPercent, aspectRatio, onClick }) {
+export default function GridTile({ project, widthPercent, aspectRatio, onClick, onHover }) {
   const videoRef = useRef(null);
   const tileRef = useRef(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
@@ -21,8 +21,9 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
   const shouldAutoplay = hoverSource === "sidebar" && isThisHovered && isNearViewport;
 
   const muxPlaybackId = project.muxPlaybackId;
+  // Use static rendition URL format (1080p.mp4 matches static_renditions config)
   const videoSrc = muxPlaybackId
-    ? `https://stream.mux.com/${muxPlaybackId}/capped-1080p.mp4`
+    ? `https://stream.mux.com/${muxPlaybackId}/1080p.mp4`
     : null;
 
   useEffect(() => {
@@ -40,6 +41,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
   const handleMouseEnter = () => {
     setIsHovering(true);
     setTileHover(projectSlug);
+    onHover?.(project);
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch(() => {});
@@ -104,7 +106,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick }
       </div>
 
       <Link
-        href={`/${project.slug.current}`}
+        href={`/?project=${project.slug.current}`}
         onClick={handleClick}
         className="block relative overflow-hidden"
         style={{ aspectRatio: aspectRatio }}

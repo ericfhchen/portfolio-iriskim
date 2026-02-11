@@ -8,14 +8,32 @@ function isMobile() {
   return window.innerWidth <= 768 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
 
-export default function VideoPlayer({ playbackId, autoPlay = false }) {
+export default function VideoPlayer({
+  playbackId,
+  aspectRatio,
+  autoPlay = false,
+  onPrevItem,
+  onNextItem,
+}) {
+  const containerRef = useRef(null);
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasAutoPlayed, setHasAutoPlayed] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [hlsLoaded, setHlsLoaded] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const hideControlsTimeout = useRef(null);
   const hlsRef = useRef(null);
+
+  // Parse Mux aspect ratio string (e.g., "16:9") to number
+  const parsedAspectRatio = aspectRatio
+    ? typeof aspectRatio === "string"
+      ? aspectRatio.split(":").reduce((a, b) => a / b)
+      : aspectRatio
+    : null;
 
   const src = `https://stream.mux.com/${playbackId}.m3u8`;
   const poster = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=0`;
@@ -27,34 +45,54 @@ export default function VideoPlayer({ playbackId, autoPlay = false }) {
     const mobile = isMobile();
     const maxHeight = mobile ? 1440 : Infinity;
 
-    // Safari supports HLS natively - use URL params to hint quality
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Mux supports max_resolution param for quality hints
-      const qualityParam = mobile ? "?max_resolution=1440p" : "";
+    // Handler for when video has enough data to play through
+    const handleCanPlayThrough = () => {
+      setIsReady(true);
+    };
+    video.addEventListener("canplaythrough", handleCanPlayThrough);
+
+    // Check if this is Safari (not Chrome) - Safari has native HLS support
+    // Chrome returns "maybe" for canPlayType but doesn't actually support HLS well
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+    if (isSafari && video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari supports HLS natively - use URL params to hint quality
+      // Note: Safari doesn't strictly enforce max_resolution, it's just a hint
+      const qualityParam = mobile ? "?max_resolution=1440p" : "?max_resolution=2160p";
       video.src = src + qualityParam;
-      setHlsLoaded(true);
-      return;
+      return () => {
+        video.removeEventListener("canplaythrough", handleCanPlayThrough);
+      };
     }
 
     // Dynamic import hls.js for non-Safari browsers
     let hls;
+    let targetLevel = -1;
+
     import("hls.js").then((HlsModule) => {
       const Hls = HlsModule.default;
       if (!Hls.isSupported()) return;
 
       hls = new Hls({
-        // Disable ABR completely
-        abrController: undefined,
-        // Don't auto-start loading - we'll trigger manually after setting level
+        // Don't auto-start loading - we control when to start
         autoStartLoad: false,
-        // Don't cap based on player size
+        // Don't cap based on player size - we want full quality
         capLevelToPlayerSize: false,
+        // High bandwidth estimate to prevent ABR from choosing low quality
+        abrEwmaDefaultEstimate: 100000000, // 100 Mbps
+        abrEwmaDefaultEstimateMax: 100000000,
+        // Disable bandwidth-based switching
+        abrBandWidthFactor: 0,
+        abrBandWidthUpFactor: 0,
+        // Max buffer length to encourage loading more high quality
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
       });
       hlsRef.current = hls;
 
       hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
         const levels = data.levels;
-        let targetLevel = levels.length - 1; // Highest quality
+        targetLevel = levels.length - 1; // Highest quality
 
         if (mobile) {
           // Find highest level at or below 1440p
@@ -66,33 +104,52 @@ export default function VideoPlayer({ playbackId, autoPlay = false }) {
           }
         }
 
-        // Lock to target level BEFORE starting to load
+        // Lock to highest quality BEFORE attaching media
         hls.currentLevel = targetLevel;
         hls.nextLevel = targetLevel;
         hls.loadLevel = targetLevel;
 
-        // Now start loading at the correct level
+        // NOW attach media and start loading
+        hls.attachMedia(video);
         hls.startLoad();
-        setHlsLoaded(true);
       });
 
+      // Enforce quality level on every level change attempt
+      hls.on(Hls.Events.LEVEL_SWITCHING, (event, data) => {
+        if (targetLevel !== -1 && data.level !== targetLevel) {
+          hls.currentLevel = targetLevel;
+          hls.nextLevel = targetLevel;
+          hls.loadLevel = targetLevel;
+        }
+      });
+
+      hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+        if (targetLevel !== -1 && data.level !== targetLevel) {
+          hls.currentLevel = targetLevel;
+          hls.nextLevel = targetLevel;
+          hls.loadLevel = targetLevel;
+        }
+      });
+
+      // Load source FIRST (this fetches the manifest)
       hls.loadSource(src);
-      hls.attachMedia(video);
+      // attachMedia is called in MANIFEST_PARSED after setting level
     });
 
     return () => {
+      video.removeEventListener("canplaythrough", handleCanPlayThrough);
       if (hls) hls.destroy();
     };
   }, [playbackId, src]);
 
-  // Autoplay with sound when autoPlay prop is true
+  // Autoplay with sound when autoPlay prop is true and video is ready
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !hlsLoaded || !autoPlay || hasAutoPlayed) return;
+    if (!video || !isReady || !autoPlay || hasAutoPlayed) return;
 
     video.play().catch(() => {});
     setHasAutoPlayed(true);
-  }, [hlsLoaded, autoPlay, hasAutoPlayed]);
+  }, [isReady, autoPlay, hasAutoPlayed]);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -104,6 +161,94 @@ export default function VideoPlayer({ playbackId, autoPlay = false }) {
     }
   }, []);
 
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = !video.muted;
+    setIsMuted(video.muted);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (!document.fullscreenElement) {
+      container.requestFullscreen?.() ||
+        container.webkitRequestFullscreen?.() ||
+        container.msRequestFullscreen?.();
+    } else {
+      document.exitFullscreen?.() ||
+        document.webkitExitFullscreen?.() ||
+        document.msExitFullscreen?.();
+    }
+  }, []);
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  // Keyboard controls
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't capture if user is typing in an input
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+      switch (e.key.toLowerCase()) {
+        case " ":
+          e.preventDefault();
+          togglePlay();
+          break;
+        case "m":
+          toggleMute();
+          break;
+        case "f":
+          toggleFullscreen();
+          break;
+        case "arrowleft":
+          e.preventDefault();
+          onPrevItem?.();
+          break;
+        case "arrowright":
+          e.preventDefault();
+          onNextItem?.();
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [togglePlay, toggleMute, toggleFullscreen, onPrevItem, onNextItem]);
+
+  // Auto-hide controls
+  const resetHideTimer = useCallback(() => {
+    setShowControls(true);
+    if (hideControlsTimeout.current) {
+      clearTimeout(hideControlsTimeout.current);
+    }
+    hideControlsTimeout.current = setTimeout(() => {
+      if (videoRef.current && !videoRef.current.paused) {
+        setShowControls(false);
+      }
+    }, 2500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hideControlsTimeout.current) {
+        clearTimeout(hideControlsTimeout.current);
+      }
+    };
+  }, []);
+
   const handleTimeUpdate = () => {
     const video = videoRef.current;
     if (video) setCurrentTime(video.currentTime);
@@ -111,7 +256,9 @@ export default function VideoPlayer({ playbackId, autoPlay = false }) {
 
   const handleLoadedMetadata = () => {
     const video = videoRef.current;
-    if (video) setDuration(video.duration);
+    if (video) {
+      setDuration(video.duration);
+    }
   };
 
   const handleSeek = (e) => {
@@ -131,38 +278,125 @@ export default function VideoPlayer({ playbackId, autoPlay = false }) {
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
+  // Calculate wrapper dimensions using aspect ratio
+  // Keep consistent sizing before AND after video loads to prevent resize jump
+  const wrapperStyle = {
+    position: "relative",
+    display: "inline-block",
+    maxHeight: "73vh",
+    maxWidth: "100%",
+  };
+
+  // Always apply aspect ratio sizing if available (not just before ready)
+  if (parsedAspectRatio) {
+    wrapperStyle.aspectRatio = parsedAspectRatio;
+    // Use width-based sizing constrained by maxHeight
+    // This ensures video never overflows viewport
+    wrapperStyle.width = `min(100%, calc(73vh * ${parsedAspectRatio}))`;
+    wrapperStyle.height = "auto";
+  }
+
   return (
-    <div className="h-full">
-      <video
-        ref={videoRef}
-        poster={poster}
-        playsInline
-        onClick={togglePlay}
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        className="h-full object-contain cursor-pointer"
-      />
+    <div
+      ref={containerRef}
+      style={{ display: "flex", alignItems: "flex-start" }}
+      onMouseMove={resetHideTimer}
+      onMouseEnter={resetHideTimer}
+    >
+      {/* Wrapper that sizes to video and positions controls */}
+      <div style={wrapperStyle}>
+        <video
+          ref={videoRef}
+          poster={poster}
+          playsInline
+          onClick={togglePlay}
+          onTimeUpdate={handleTimeUpdate}
+          onLoadedMetadata={handleLoadedMetadata}
+          onPlay={() => {
+            setIsPlaying(true);
+            resetHideTimer();
+          }}
+          onPause={() => {
+            setIsPlaying(false);
+            setShowControls(true);
+          }}
+          className="cursor-pointer"
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "block",
+            opacity: isReady ? 1 : 0,
+            transition: "opacity 200ms ease-in",
+          }}
+        />
 
-      <div className="flex items-center gap-2 mt-1">
-        <button onClick={togglePlay} className="cursor-pointer">
-          {isPlaying ? "pause" : "play"}
-        </button>
-
-        <div
-          className="flex-1 h-[1px] bg-muted relative cursor-pointer"
-          onClick={handleSeek}
-        >
+        {/* Controls overlay - positioned at bottom of the inline-block wrapper */}
+        {isReady && (
           <div
-            className="absolute top-0 left-0 h-full bg-black"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              padding: "8px 12px",
+              opacity: showControls ? 1 : 0,
+              transition: "opacity 300ms",
+              pointerEvents: showControls ? "auto" : "none",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "white", fontSize: "9px" }}>
+              {/* Play/Pause - fixed width */}
+              <button
+                onClick={togglePlay}
+                className="cursor-pointer hover:opacity-70 transition-opacity"
+                style={{ width: "28px", textAlign: "left" }}
+              >
+                {isPlaying ? "pause" : "play"}
+              </button>
 
-        <span>
-          {formatTime(currentTime)} / {formatTime(duration)}
-        </span>
+              {/* Mute - fixed width, next to play */}
+              <button
+                onClick={toggleMute}
+                className="cursor-pointer hover:opacity-70 transition-opacity"
+                style={{ width: "38px", textAlign: "left" }}
+              >
+                {isMuted ? "unmute" : "mute"}
+              </button>
+
+              {/* Progress bar */}
+              <div
+                style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.4)", position: "relative", cursor: "pointer" }}
+                onClick={handleSeek}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    height: "100%",
+                    background: "white",
+                    width: `${progress}%`,
+                    transition: "width 250ms linear",
+                  }}
+                />
+              </div>
+
+              {/* Time - fixed width */}
+              <span style={{ width: "70px", textAlign: "right", opacity: 0.7, fontVariantNumeric: "tabular-nums" }}>
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </span>
+
+              {/* Fullscreen - fixed width */}
+              <button
+                onClick={toggleFullscreen}
+                className="cursor-pointer hover:opacity-70 transition-opacity"
+                style={{ width: "52px", textAlign: "right" }}
+              >
+                {isFullscreen ? "exit" : "fullscreen"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { buildGridRows } from "@/lib/gridLayout";
 import GridTile from "./GridTile";
 
-export default function ProjectGrid({ projects, onProjectClick }) {
+export default function ProjectGrid({ projects, onProjectClick, onProjectHover }) {
   const rows = useMemo(() => buildGridRows(projects), [projects]);
 
   return (
@@ -18,6 +18,7 @@ export default function ProjectGrid({ projects, onProjectClick }) {
               widthPercent={tile.widthPercent}
               aspectRatio={tile.aspectRatio}
               onClick={onProjectClick}
+              onHover={onProjectHover}
             />
           ))}
         </div>

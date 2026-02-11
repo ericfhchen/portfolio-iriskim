@@ -61,7 +61,9 @@ export default defineConfig({
       },
     }),
     muxInput({
-      mp4_support: "capped-1080p",
+      // static_renditions replaces deprecated mp4_support
+      // This automatically creates MP4 files for all new uploads
+      static_renditions: ["1080p"],
       max_resolution_tier: "2160p",
     }),
   ],

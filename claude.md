@@ -38,6 +38,38 @@ Portfolio site for Iris Kim using Next.js 15 and Sanity CMS.
 
 ---
 
+## Sanity Client Configuration
+
+### Overview
+Two Sanity clients are available: `client` (CDN-cached) and `freshClient` (bypasses cache).
+
+### Files
+- `sanity/lib/client.js` - Exports both clients
+
+### Why freshClient Exists
+- Sanity CDN caches responses for performance
+- New uploads (especially Mux videos) may not appear immediately with cached client
+- For portfolio sites, fresh data is more important than CDN speed
+
+### Usage
+```js
+import { freshClient } from "@/sanity/lib/client";
+
+// Always use freshClient for project data to ensure new uploads appear immediately
+const projects = await freshClient.fetch(allProjectsQuery);
+```
+
+### Current Usage
+- `app/(site)/page.js` - Uses `freshClient` for all project queries
+- `app/(site)/layout.js` - Uses `freshClient` for settings and projects
+- `context/ProjectContext.js` - Uses `freshClient` for client-side fetches
+
+### When to Use Each
+- `freshClient` - Project data, media queries, anything that might be recently updated
+- `client` - Static content that rarely changes (if needed for performance)
+
+---
+
 ## Sanity Studio Custom Theme
 
 ### Overview
@@ -143,45 +175,64 @@ Videos are hosted on Mux and integrated via `sanity-plugin-mux-input`. The site 
 ### Mux Tier
 - Using **Mux Basic** tier
 - Basic tier supports up to **4K streaming** via HLS
-- MP4 renditions capped at 1080p (`capped-1080p`)
+- Static renditions at 1080p for hover previews
 
 ### sanity.config.js Mux Settings
 ```js
 muxInput({
-  mp4_support: "capped-1080p",    // Enables MP4 for hover previews
+  // static_renditions replaces deprecated mp4_support
+  // Automatically creates MP4 files for all new uploads
+  static_renditions: ["1080p"],
   max_resolution_tier: "2160p",   // Allows up to 4K HLS streaming
 }),
 ```
 
 ### Important: These settings only apply to NEW uploads
 - Existing assets keep their original settings
-- To enable MP4 on existing assets, use the Mux API (see below)
+- To enable static renditions on existing assets, use the Mux API (see below)
 - After changing config, must clear cache (`rm -rf .next`) and restart dev server
 
-### MP4 Support Options
-- `"capped-1080p"` - Current option, generates single MP4 up to 1080p (filename: `capped-1080p.mp4`)
-- `"standard"` - **DEPRECATED** - was for multiple quality levels (`low.mp4`, `medium.mp4`, `high.mp4`) but no longer works on Basic tier
-- `"none"` - No MP4 renditions
+### Static Renditions Options
+- `["1080p"]` - Current option, generates 1080p MP4 (filename: `1080p.mp4`)
+- `["highest"]` - Generates MP4 at highest quality up to 4K (filename: `highest.mp4`)
+- `["720p", "1080p"]` - Multiple resolutions
+- `["highest", "audio-only"]` - Includes M4A audio file
 
-### Enable MP4 on Existing Assets via API
+### URL Format for Static Renditions
+```
+https://stream.mux.com/{PLAYBACK_ID}/{RESOLUTION}.mp4
+```
+Examples:
+- `https://stream.mux.com/abc123/1080p.mp4`
+- `https://stream.mux.com/abc123/highest.mp4`
+
+### Deprecated: mp4_support
+The old `mp4_support: "capped-1080p"` option is deprecated. Use `static_renditions` instead.
+- Cannot coexist with `static_renditions` on same asset
+- Old URL format was: `capped-1080p.mp4`
+
+### Enable Static Renditions on Existing Assets via API
 ```js
 // Requires MUX_TOKEN_ID and MUX_TOKEN_SECRET in .env.local
 const auth = Buffer.from(MUX_TOKEN_ID + ':' + MUX_TOKEN_SECRET).toString('base64');
 
-fetch(`https://api.mux.com/video/v1/assets/${assetId}/mp4-support`, {
-  method: 'PUT',
+// Use the static-renditions endpoint (not mp4-support)
+fetch(`https://api.mux.com/video/v1/assets/${assetId}`, {
+  method: 'PATCH',
   headers: {
     'Authorization': 'Basic ' + auth,
     'Content-Type': 'application/json',
   },
-  body: JSON.stringify({ mp4_support: 'capped-1080p' }),
+  body: JSON.stringify({
+    static_renditions: [{ name: "1080p" }]
+  }),
 });
 ```
 
 ### Video Components
 
 #### GridTile.js (Hover Preview)
-- Uses MP4 for fast hover playback: `https://stream.mux.com/${playbackId}/capped-1080p.mp4`
+- Uses MP4 for fast hover playback: `https://stream.mux.com/${playbackId}/1080p.mp4`
 - Muted, loops, plays on hover
 - Lazy loads when tile is near viewport (200px margin)
 
@@ -193,21 +244,51 @@ fetch(`https://api.mux.com/video/v1/assets/${assetId}/mp4-support`, {
 - Mobile (≤768px): Caps at 1440p
 
 ##### HLS Quality Forcing
+
+**Critical**: Must detect Safari specifically, not just check `canPlayType('application/vnd.apple.mpegurl')`.
+Chrome returns "maybe" for this check but doesn't support HLS well natively.
+
+```js
+// WRONG - Chrome returns "maybe" and uses native (low quality) HLS
+if (video.canPlayType("application/vnd.apple.mpegurl")) { ... }
+
+// CORRECT - Check for Safari specifically
+const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+if (isSafari && video.canPlayType("application/vnd.apple.mpegurl")) { ... }
+```
+
+For hls.js (non-Safari browsers):
 ```js
 hls = new Hls({
-  abrController: undefined,      // Disable ABR completely
-  autoStartLoad: false,          // Don't load until we set quality
-  capLevelToPlayerSize: false,   // Don't cap based on player size
+  autoStartLoad: false,
+  capLevelToPlayerSize: false,
+  abrEwmaDefaultEstimate: 100000000, // 100 Mbps - assume fast connection
+  abrBandWidthFactor: 0,
+  abrBandWidthUpFactor: 0,
 });
 
 hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-  // Set to highest level before starting load
-  hls.currentLevel = levels.length - 1;
-  hls.nextLevel = levels.length - 1;
-  hls.loadLevel = levels.length - 1;
-  hls.startLoad();  // Now start loading at correct quality
+  const levels = data.levels;
+  const targetLevel = levels.length - 1; // Highest quality
+
+  // Lock level BEFORE attaching media
+  hls.currentLevel = targetLevel;
+  hls.nextLevel = targetLevel;
+  hls.loadLevel = targetLevel;
+
+  // NOW attach and start loading
+  hls.attachMedia(video);
+  hls.startLoad();
 });
+
+// Also enforce on LEVEL_SWITCHING and LEVEL_SWITCHED
 ```
+
+Key points:
+- Call `loadSource()` first (fetches manifest)
+- Set levels in `MANIFEST_PARSED` callback
+- Call `attachMedia()` and `startLoad()` AFTER setting levels
+- Enforce level on `LEVEL_SWITCHING` and `LEVEL_SWITCHED` events
 
 #### MediaGallery.js
 - Displays project media (videos and images)
@@ -243,18 +324,30 @@ Get from: https://dashboard.mux.com/settings/api-access-tokens
 
 ### Troubleshooting
 
-#### 404 on MP4 hover preview
-- Asset doesn't have MP4 support enabled
+#### 404 on MP4 hover preview (new upload)
+- **Most likely:** Sanity CDN is returning stale/cached data without the new playbackId
+- **Solution:** Use `freshClient` instead of `client` for all project queries (already implemented)
+- **Verify:** Check if MP4 works when accessing `https://stream.mux.com/{PLAYBACK_ID}/1080p.mp4` directly with the playback ID from Mux dashboard
+
+#### 404 on MP4 hover preview (existing asset)
+- Asset doesn't have static renditions enabled
 - Enable via Mux API (see above)
 - Or re-upload after config is set
 
-#### Video starts at low quality
-- hls.js ABR is ramping up
-- Ensure `autoStartLoad: false` and manual level setting before `startLoad()`
+#### Video starts at low quality (e.g., 404x270 instead of 2160x1440)
+- **Most likely:** Chrome is using native HLS instead of hls.js
+- The old code checked `canPlayType("application/vnd.apple.mpegurl")` - Chrome returns "maybe" (truthy)
+- **Fix:** Detect Safari specifically: `const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)`
+- Also ensure hls.js config: `autoStartLoad: false`, set level in `MANIFEST_PARSED`, call `attachMedia()` AFTER setting level
 
 #### New uploads not getting MP4/4K
 - Config changes require cache clear and server restart
 - Run `rm -rf .next && npm run dev`
+
+#### Mux says "ready" but frontend still 404s
+- Sanity CDN caching issue - the `mux.videoAsset` document hasn't propagated
+- Use `freshClient` (useCdn: false) to bypass cache
+- See "Sanity Client Configuration" section above
 
 ---
 
@@ -382,3 +475,293 @@ style={{
 
 #### Last row stretching to fill
 - Ensure `finalizeRow` is called with `scaleToFill = false` for last row
+
+---
+
+## Single-Page Project Navigation
+
+### Overview
+Projects open seamlessly without page transitions using `/?project=slug` URL structure. Data is prefetched on hover for instant transitions, and SSR works for direct links.
+
+### Architecture
+
+#### URL Structure
+| Action | URL |
+|--------|-----|
+| Home (grid only) | `/` |
+| Project selected | `/?project=project-slug` |
+| Direct link | `/?project=project-slug` (SSR works) |
+
+#### Key Files
+- `context/ProjectContext.js` - Project selection state, data cache, URL sync
+- `app/(site)/page.js` - Handles `?project=slug` searchParam, SSR fetches initial project
+- `components/SiteLayoutClient.js` - Wraps app with `ProjectProvider` inside `Suspense`
+- `components/PortfolioShell.js` - Uses `useProject()` hook, seeds cache with SSR data
+- `components/GridTile.js` - Calls `onHover` for prefetch, uses `/?project=slug` links
+- `components/SidebarClient.js` - Uses context's `selectProject` and `prefetchProject`
+
+#### Deleted Files (no longer needed)
+- `app/(site)/[slug]/page.js` - Old dynamic route
+- `components/ProjectPageClient.js` - Old wrapper component
+
+### ProjectContext API
+
+```js
+const {
+  activeSlug,        // Currently selected project slug
+  activeProject,     // Full project data from cache
+  showGallery,       // Whether gallery is visible
+  projects,          // All projects list
+  projectCache,      // Map of slug → project data
+  selectProject,     // (slug) → updates URL, fetches if needed, scrolls to top
+  prefetchProject,   // (slug) → fetches in background (fire-and-forget)
+  closeProject,      // () → hides gallery, navigates to /
+  seedProject,       // (project) → seeds cache with SSR data
+} = useProject();
+```
+
+### Data Flow
+
+1. **SSR (direct link to `/?project=slug`)**:
+   - `page.js` fetches project server-side
+   - Passes `initialProject` to `PortfolioShell`
+   - `PortfolioShell` calls `seedProject()` to populate cache
+
+2. **Client navigation (clicking tile/sidebar)**:
+   - Hover triggers `prefetchProject(slug)` - fetches in background
+   - Click triggers `selectProject(slug)` - data already cached, instant display
+   - URL updates via `router.push()` with `scroll: false`
+   - `window.scrollTo({ top: 0, behavior: "smooth" })` for smooth scroll
+
+3. **Browser back/forward**:
+   - `useEffect` watches `searchParams`
+   - Syncs `activeSlug` and `showGallery` with URL
+   - Fetches project data if not cached
+
+### URL Redirects (next.config.mjs)
+
+Old `/slug` URLs redirect to `/?project=slug`:
+
+```js
+async redirects() {
+  return [
+    {
+      source: "/:slug((?!studio|api|_next|favicon|robots|sitemap)[a-zA-Z0-9_-]+)",
+      destination: "/?project=:slug",
+      permanent: false,
+    },
+  ];
+}
+```
+
+**Important**: The regex must require at least one character (`[a-zA-Z0-9_-]+`) to prevent matching the root path `/` which causes infinite redirect loops.
+
+### Suspense Requirement
+
+`useSearchParams()` requires Suspense boundary. `SiteLayoutClient` wraps content:
+
+```js
+export default function SiteLayoutClient({ artistName, projects, children }) {
+  return (
+    <Suspense fallback={...}>
+      <SiteLayoutInner artistName={artistName} projects={projects}>
+        {children}
+      </SiteLayoutInner>
+    </Suspense>
+  );
+}
+```
+
+### Cache Management
+
+- Uses `useRef` to avoid stale closure issues with `projectCache`
+- `cacheRef.current` is updated via `useEffect` when `projectCache` changes
+- All functions use `cacheRef.current` to check cache state
+
+### Troubleshooting
+
+#### Infinite redirect loop on `/`
+- Check `next.config.mjs` redirect regex
+- Must exclude empty strings: use `[a-zA-Z0-9_-]+` not `.*`
+
+#### Project not displaying after click
+- Check browser console for fetch errors
+- Verify `projectDetailQuery` returns expected data
+- Check that `seedProject` is called with SSR data
+
+#### Browser back not working
+- Ensure `searchParams` effect dependencies are correct
+- Check that `activeSlug` comparison works
+
+#### Prefetch not working
+- Verify `onHover` prop is passed through `ProjectGrid` to `GridTile`
+- Check that `prefetchProject` is called in `handleMouseEnter`
+
+---
+
+## Custom Scroll Animation
+
+### Overview
+Project selection triggers a custom smooth scroll to top with configurable easing. Located in `context/ProjectContext.js`.
+
+### Current Settings
+- **Duration**: 1400ms
+- **Easing**: Asymmetric - exponential ease-in, quartic ease-out
+
+### Easing Function
+```js
+const customEase = (t) => {
+  if (t < 0.5) {
+    // Ease-in expo for first half (slow start, fast acceleration)
+    return Math.pow(2, 16 * t - 8) / 2;
+  }
+  // Ease-out quart for second half (firm landing)
+  return 1 - Math.pow(-2 * t + 2, 4) / 2;
+};
+```
+
+### Animation Implementation
+```js
+function smoothScrollToTop(duration = 1400) {
+  const start = window.scrollY;
+  if (start === 0) return;
+
+  const startTime = performance.now();
+
+  function scroll(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = customEase(progress);
+
+    window.scrollTo(0, start * (1 - eased));
+
+    if (progress < 1) {
+      requestAnimationFrame(scroll);
+    }
+  }
+
+  requestAnimationFrame(scroll);
+}
+```
+
+### Easing Options Reference
+| Easing | Formula | Character |
+|--------|---------|-----------|
+| Cubic | `t * t * t` | Subtle |
+| Quart | `t * t * t * t` | Medium |
+| Quint | `t * t * t * t * t` | Pronounced |
+| Expo | `Math.pow(2, 10 * t - 10)` | Dramatic |
+
+### Ease-in-out Formulas
+- **Cubic**: `t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2`
+- **Quart**: `t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2`
+- **Quint**: `t < 0.5 ? 16 * t * t * t * t * t : 1 - Math.pow(-2 * t + 2, 5) / 2`
+- **Expo**: `t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2`
+
+### Tuning Notes
+- Longer duration = more dramatic feel
+- Higher power (quint vs cubic) = more pronounced ease
+- Asymmetric curves avoid stutter (don't mix incompatible curves at the midpoint)
+- Expo ease-in + quart/quint ease-out = slow start, fast middle, controlled landing
+
+---
+
+## VideoPlayer Component
+
+### Overview
+Custom video player component using HLS streaming with controls overlay. Located in `components/VideoPlayer.js`.
+
+### Props
+- `playbackId` - Mux playback ID
+- `aspectRatio` - Video aspect ratio from Mux (e.g., "16:9" string or number)
+- `autoPlay` - Whether to autoplay when ready (default: false)
+- `onPrevItem` / `onNextItem` - Callbacks for media gallery navigation
+
+### Key Architecture Decisions
+
+#### Container Sizing Problem
+**Problem**: Video player controls need to match the video's actual rendered dimensions, but:
+- `inline-block` + `height: 100%` on wrapper → wrapper takes full container height
+- When viewport is tall, video (constrained by aspect ratio) doesn't fill container
+- Controls at `bottom: 0` end up below the video with a gap
+
+**Three options considered**:
+1. **JavaScript ResizeObserver** - Measure video, set wrapper size via state (precise, more code)
+2. **Let video dictate height** - Remove height constraints, video sizes naturally (simpler, controls always correct)
+3. **Absolute positioning + object-fit** - Complex measurement approach
+
+**Chosen: Option 2** - Video uses `maxHeight: 73vh` and `maxWidth: 100%`, wrapper sizes to content naturally.
+
+#### Structure
+```jsx
+<div style={{ display: "flex", alignItems: "flex-start" }}>  {/* Outer container */}
+  <div style={{ position: "relative", display: "inline-block", ...wrapperStyle }}>  {/* Wrapper */}
+    <video style={{ maxHeight: "73vh", maxWidth: "100%", display: "block" }} />
+    {isReady && <div style={{ position: "absolute", bottom: 0 }}>controls</div>}
+  </div>
+</div>
+```
+
+#### Sizing with Aspect Ratio (Preventing Layout Shift & Overflow)
+To prevent layout shift when video loads AND prevent overflow:
+- Pass `aspectRatio` from Sanity/Mux data
+- Parse Mux format ("16:9" string → number): `aspectRatio.split(":").reduce((a, b) => a / b)`
+- **Key insight**: Must apply sizing ALWAYS (not just before `isReady`) to prevent resize jump when video loads
+- Use `min()` to constrain width to either viewport or calculated size:
+  ```js
+  if (parsedAspectRatio) {
+    wrapperStyle.aspectRatio = parsedAspectRatio;
+    wrapperStyle.width = `min(100%, calc(73vh * ${parsedAspectRatio}))`;
+    wrapperStyle.height = "auto";
+  }
+  ```
+- Video element uses `width: 100%`, `height: 100%` to fill wrapper
+- This ensures:
+  - No overflow (width capped at 100% of container)
+  - No resize jump (sizing consistent before/after load)
+  - Correct aspect ratio maintained via wrapper
+
+#### Buffering Before Autoplay
+**Problem**: Video would start playing low-quality segments before highest quality loaded.
+
+**Solution**: Wait for `canplaythrough` event before marking video as ready:
+```js
+video.addEventListener("canplaythrough", () => setIsReady(true));
+```
+
+Autoplay effect depends on `isReady`, not just manifest parsing:
+```js
+useEffect(() => {
+  if (!isReady || !autoPlay || hasAutoPlayed) return;
+  video.play();
+  setHasAutoPlayed(true);
+}, [isReady, autoPlay, hasAutoPlayed]);
+```
+
+#### Controls Visibility
+- Controls only render when `isReady` is true: `{isReady && <controls />}`
+- Video fades in with `opacity: isReady ? 1 : 0` and `transition: "opacity 200ms ease-in"`
+
+#### Smooth Progress Bar
+HTML5 video `timeupdate` fires roughly every 250ms, causing jerky progress bar updates.
+
+**Solution**: Add CSS transition to interpolate between updates:
+```js
+style={{
+  width: `${progress}%`,
+  transition: "width 250ms linear",
+}}
+```
+
+### HLS Quality Forcing
+See the "HLS Quality Forcing" section under "Mux Video Integration" above for the correct implementation.
+
+**Key insight discovered**: The old code checked `video.canPlayType("application/vnd.apple.mpegurl")` to decide whether to use native HLS or hls.js. Chrome returns `"maybe"` for this (which is truthy), causing it to use native HLS which doesn't support quality forcing. The fix is to detect Safari specifically via user agent.
+
+**Note**: Safari uses native HLS and only accepts URL hints (`?max_resolution=2160p`), which are not strictly enforced.
+
+### Controls Layout
+- No gradient background (removed for cleaner look)
+- Fixed-width buttons for consistent layout
+- Flexible progress bar fills remaining space
+- Tabular nums for time display alignment

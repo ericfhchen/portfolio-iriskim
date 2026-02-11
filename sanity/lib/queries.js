@@ -15,6 +15,7 @@ export const projectDetailQuery = `*[_type == "project" && slug.current == $slug
   title,
   slug,
   year,
+  caption,
   tileSize,
   projectCode,
   coverImage,
