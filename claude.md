@@ -500,15 +500,19 @@ Projects open seamlessly without page transitions using `/?project=slug` URL str
 
 ```js
 const {
-  activeSlug,        // Currently selected project slug
-  activeProject,     // Full project data from cache
-  showGallery,       // Whether gallery is visible
-  projects,          // All projects list
-  projectCache,      // Map of slug → project data
-  selectProject,     // (slug) → updates URL, fetches if needed, scrolls to top
-  prefetchProject,   // (slug) → fetches in background (fire-and-forget)
-  closeProject,      // () → hides gallery, navigates to /
-  seedProject,       // (project) → seeds cache with SSR data
+  activeSlug,              // Currently selected project slug
+  activeProject,           // Full project data from cache
+  showGallery,             // Whether gallery is visible
+  isSwitching,             // Whether switching between projects (for fade transitions)
+  animationPhase,          // 'idle' | 'scrolling-to-peek' | 'grid-animating' | 'gallery-fading-in' | 'ready'
+  galleryScrollOpacity,    // Gallery opacity based on grid overlap (0-1)
+  setGalleryScrollOpacity, // Setter for gallery opacity (used by PortfolioShell)
+  projects,                // All projects list
+  projectCache,            // Map of slug → project data
+  selectProject,           // (slug) → updates URL, orchestrates animation sequence
+  prefetchProject,         // (slug) → fetches in background (fire-and-forget)
+  closeProject,            // () → hides gallery, navigates to /
+  seedProject,             // (project) → seeds cache with SSR data, sets phase to 'ready'
 } = useProject();
 ```
 
@@ -518,12 +522,14 @@ const {
    - `page.js` fetches project server-side
    - Passes `initialProject` to `PortfolioShell`
    - `PortfolioShell` calls `seedProject()` to populate cache
+   - `animationPhase` set to `'ready'` immediately (no animation)
 
 2. **Client navigation (clicking tile/sidebar)**:
    - Hover triggers `prefetchProject(slug)` - fetches in background
-   - Click triggers `selectProject(slug)` - data already cached, instant display
-   - URL updates via `router.push()` with `scroll: false`
-   - `window.scrollTo({ top: 0, behavior: "smooth" })` for smooth scroll
+   - Click triggers `selectProject(slug)` - orchestrates animation sequence:
+     - From landing or scrolled: `scrolling-to-peek` (1000ms custom ease) → `grid-animating` (800ms) → `gallery-fading-in` (300ms) → `ready`
+     - Already at top with project: `gallery-fading-in` (crossfade) → `ready`
+   - Video autoplay gates on `animationPhase === 'ready'`
 
 3. **Browser back/forward**:
    - `useEffect` watches `searchParams`
@@ -591,70 +597,56 @@ export default function SiteLayoutClient({ artistName, projects, children }) {
 
 ---
 
-## Custom Scroll Animation
+## Project Selection Animation
 
 ### Overview
-Project selection triggers a custom smooth scroll to top with configurable easing. Located in `context/ProjectContext.js`.
+When selecting a project, the grid animates to a "peek" position first, then the gallery fades in, and finally video autoplay is allowed. This creates a smooth, sequenced transition.
 
-### Current Settings
-- **Duration**: 1400ms
-- **Easing**: Asymmetric - exponential ease-in, quartic ease-out
+### Animation Phases
+The `animationPhase` state in `ProjectContext` controls the sequence:
 
-### Easing Function
+| Phase | Duration | Description |
+|-------|----------|-------------|
+| `idle` | - | No project selected |
+| `scrolling-to-peek` | 1000ms | Smooth scroll to top with custom easing |
+| `grid-animating` | 800ms | Grid slides down to peek position |
+| `gallery-fading-in` | 300ms | Gallery fades in from opacity 0 |
+| `ready` | - | Animation complete, video can autoplay |
+
+### Grid Peek Position
+When a project is selected, the grid is pushed down so only ~15% of the first row peeks at the bottom of the viewport. This is calculated in `PortfolioShell.js`:
+
 ```js
-const customEase = (t) => {
-  if (t < 0.5) {
-    // Ease-in expo for first half (slow start, fast acceleration)
-    return Math.pow(2, 16 * t - 8) / 2;
-  }
-  // Ease-out quart for second half (firm landing)
-  return 1 - Math.pow(-2 * t + 2, 4) / 2;
-};
+const peek = firstRow.offsetHeight * 0.15;
+setPeekAmount(peek);
+setGridPeekTop(window.innerHeight - peek);
 ```
 
-### Animation Implementation
+The grid uses `padding-top` with CSS transition for the animation:
 ```js
-function smoothScrollToTop(duration = 1400) {
-  const start = window.scrollY;
-  if (start === 0) return;
-
-  const startTime = performance.now();
-
-  function scroll(currentTime) {
-    const elapsed = currentTime - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    const eased = customEase(progress);
-
-    window.scrollTo(0, start * (1 - eased));
-
-    if (progress < 1) {
-      requestAnimationFrame(scroll);
-    }
-  }
-
-  requestAnimationFrame(scroll);
-}
+style={{
+  paddingTop: showGallery && gridPeekTop ? gridPeekTop : landingPadding,
+  transition: animationPhase === 'grid-animating'
+    ? 'padding-top 800ms cubic-bezier(0.4, 0, 0.2, 1)'
+    : 'none',
+}}
 ```
 
-### Easing Options Reference
-| Easing | Formula | Character |
-|--------|---------|-----------|
-| Cubic | `t * t * t` | Subtle |
-| Quart | `t * t * t * t` | Medium |
-| Quint | `t * t * t * t * t` | Pronounced |
-| Expo | `Math.pow(2, 10 * t - 10)` | Dramatic |
+### Landing Page Peek
+The landing page shows 2 full rows with an 8% peek of the 3rd row at the bottom of the viewport.
 
-### Ease-in-out Formulas
-- **Cubic**: `t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2`
-- **Quart**: `t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2`
-- **Quint**: `t < 0.5 ? 16 * t * t * t * t * t : 1 - Math.pow(-2 * t + 2, 5) / 2`
-- **Expo**: `t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2`
+### Video Autoplay Gating
+Videos only autoplay after the animation sequence completes:
+- `MediaGallery` receives `allowAutoPlay={animationPhase === 'ready'}`
+- `VideoPlayer` checks `allowAutoPlay` before triggering autoplay
+- Video can buffer during animation, but won't start playing until `ready`
 
-### Tuning Notes
-- Longer duration = more dramatic feel
-- Higher power (quint vs cubic) = more pronounced ease
-- Asymmetric curves avoid stutter (don't mix incompatible curves at the midpoint)
-- Expo ease-in + quart/quint ease-out = slow start, fast middle, controlled landing
+### Animation Scenarios
+
+1. **From landing page**: Grid animates → Gallery fades in → Video plays
+2. **Switching projects at scroll=0**: Gallery crossfades (no grid animation)
+3. **Switching projects while scrolled**: Grid animates → Gallery crossfades → Video plays
+4. **SSR/direct link**: No animation, `animationPhase` set to `ready` immediately
 
 ---
 
@@ -757,3 +749,227 @@ See the "HLS Quality Forcing" section under "Mux Video Integration" above for th
 - Fixed-width buttons for consistent layout
 - Flexible progress bar fills remaining space
 - Tabular nums for time display alignment
+
+---
+
+## Fixed Gallery with Grid Overlap Fade
+
+### Overview
+The gallery is fixed in place while the grid scrolls over it. As the grid overlaps the gallery, the gallery fades out linearly. This creates a natural transition between viewing a project and browsing the grid.
+
+### Architecture
+
+#### Gallery Positioning
+Gallery is fixed, positioned from top to the peek line:
+```js
+style={{
+  position: 'fixed',
+  top: 0,
+  left: 'calc(100% / 6)',  // Sidebar width
+  right: 0,
+  height: `calc(100vh - ${peekAmount}px)`,
+  zIndex: 10,  // Above grid so gallery can receive pointer events
+  opacity: computedGalleryOpacity,
+  pointerEvents: computedGalleryOpacity < 0.1 ? 'none' : 'auto',
+}}
+```
+
+#### Grid Positioning
+Grid is below gallery in z-order:
+```js
+style={{
+  position: 'relative',
+  zIndex: 2,
+  paddingTop: showGallery && gridPeekTop ? gridPeekTop : landingPadding,
+}}
+```
+
+**Important**: Do NOT add `backgroundColor` to the grid - it will block everything behind it.
+
+### Overlap-Based Fade Calculation
+
+**Critical**: Measure the first row's position, not the grid container. The grid container has large `paddingTop` which would give wrong measurements.
+
+```js
+const handleScroll = () => {
+  // Don't update opacity during animation phases - keep it at 1
+  if (animationPhase !== 'ready') {
+    return;
+  }
+
+  // Get the first row of tiles, not the grid container (which has padding)
+  const rowContainer = gridRef.current.querySelector('.w-full.flex.flex-col');
+  const firstRow = rowContainer?.children[0];
+  if (!firstRow) return;
+
+  const firstRowTop = firstRow.getBoundingClientRect().top;
+  const effectivePeek = peekAmount || window.innerHeight * 0.15;
+  const galleryBottom = window.innerHeight - effectivePeek;
+  const fadeEndY = window.innerHeight * 0.5;
+
+  if (firstRowTop >= galleryBottom) {
+    setGalleryScrollOpacity(1);
+  } else if (firstRowTop <= fadeEndY) {
+    setGalleryScrollOpacity(0);
+  } else {
+    const progress = (galleryBottom - firstRowTop) / (galleryBottom - fadeEndY);
+    setGalleryScrollOpacity(1 - progress);
+  }
+};
+```
+
+### Key Points
+
+1. **Gallery stays fixed** - doesn't scroll with the page
+2. **Gallery has higher z-index (10)** - so it can receive pointer events when visible
+3. **Pointer events toggle** - `pointerEvents: 'none'` when opacity < 0.1 allows clicks through to grid
+4. **Measure first row, not container** - grid container has padding that throws off measurements
+5. **Only calculate during 'ready' phase** - prevents opacity from being set to 0 during animation
+6. **Linear fade** - opacity fades linearly as first row overlaps gallery
+7. **Fade ends at 50% viewport** - gallery fully transparent when first row reaches 50% vh
+8. **URL stays with project** - don't clear `?project=slug` when faded (would break scroll-back)
+
+### Computed Gallery Opacity
+
+```js
+const computedGalleryOpacity = (() => {
+  if (isFadingOut) return 0;
+  if (animationPhase === 'grid-animating' || animationPhase === 'scrolling-to-peek' || animationPhase === 'idle') return 0;
+  // In 'gallery-fading-in' or 'ready' phase, show based on scroll opacity
+  return galleryScrollOpacity;
+})();
+```
+
+### Sidebar Integration
+Sidebar muting uses `galleryScrollOpacity` instead of snap state:
+```js
+// In SidebarClient
+const hasActiveProject = !!activeSlug && galleryScrollOpacity > 0.5;
+const shouldMuteOthers = hasActiveHover || hasActiveProject;
+```
+
+### Custom Scroll Easing
+
+Uses `lib/easing.js` for smooth scroll animations:
+```js
+import { smoothScrollTo, customEase } from '@/lib/easing';
+
+// In selectProject
+await smoothScrollTo(0, 1000, customEase);
+```
+
+The `customEase` function provides expo ease-in and quart ease-out for a refined feel.
+
+### Troubleshooting
+
+#### Gallery not appearing (opacity 0)
+- Check `animationPhase` - should be `'gallery-fading-in'` or `'ready'`
+- Check `galleryScrollOpacity` - should be 1 when at scroll position 0
+- Scroll handler may be firing during animation and setting opacity to 0
+
+#### Can't click on gallery elements
+- Gallery needs higher `zIndex` than grid (currently 10 vs 2)
+- Check `pointerEvents` - should be `'auto'` when opacity >= 0.1
+
+#### Fade not working on scroll
+- Ensure measuring first row, not grid container
+- Scroll handler should only run when `animationPhase === 'ready'`
+- Check that `peekAmount` is calculated
+
+---
+
+## Landing Page Grid Positioning
+
+### Overview
+On the homepage landing (no project selected), the grid is positioned so that only the first 2 rows are visible with the 3rd row peeking at the bottom of the viewport. This creates a dramatic "reveal" effect where users scroll down to discover more projects.
+
+### Files
+- `components/PortfolioShell.js` - Handles padding calculation and visibility
+
+### How It Works
+
+#### Dynamic Top Padding
+The grid container receives calculated top padding that pushes the content down:
+```js
+const [gridTopPadding, setGridTopPadding] = useState(0);
+const [isPaddingReady, setIsPaddingReady] = useState(false);
+```
+
+#### Padding Calculation
+```js
+useEffect(() => {
+  // Only apply when no project is selected
+  if (initialProject || showGallery) {
+    setGridTopPadding(0);
+    setIsPaddingReady(true);
+    return;
+  }
+
+  const calculatePadding = () => {
+    const vh = window.innerHeight;
+    const gap = 24; // gap-6
+
+    // Get first 2 rows and 3rd row for peek (from TOP of grid)
+    const firstRow = rowElements[0];
+    const secondRow = rowElements[1];
+    const thirdRow = rowElements[2];
+
+    // Height of content we want visible: 2 full rows + 15% peek of 3rd
+    const top2Height = firstRow.offsetHeight + gap + secondRow.offsetHeight;
+    const peekAmount = thirdRow.offsetHeight * 0.15;
+    const visibleOnLoad = top2Height + gap + peekAmount;
+
+    // Padding = viewport height - visible content - base padding
+    const padding = Math.max(0, vh - visibleOnLoad - 16);
+    setGridTopPadding(padding);
+    setIsPaddingReady(true);
+  };
+
+  requestAnimationFrame(calculatePadding);
+  window.addEventListener('resize', calculatePadding);
+  return () => window.removeEventListener('resize', calculatePadding);
+}, [initialProject, showGallery]);
+```
+
+#### Preventing Flash on Load
+**Problem**: Grid would flash at the top of the page before padding was applied, then jump down.
+
+**Solution**: Hide grid until padding is calculated:
+```js
+<div
+  ref={gridRef}
+  className="p-4"
+  style={{
+    paddingTop: gridTopPadding > 0 ? gridTopPadding + 16 : 16,
+    opacity: isPaddingReady ? 1 : 0,
+  }}
+>
+```
+
+Key points:
+- `isPaddingReady` starts as `false`
+- Grid has `opacity: 0` until padding is calculated
+- `requestAnimationFrame` ensures DOM measurements are accurate
+- Once padding is set, `isPaddingReady` becomes `true` and grid appears
+
+#### When Padding Is Removed
+- When a project is selected (`showGallery` becomes true)
+- When navigating directly to a project URL (`initialProject` is set)
+- Padding resets to 0 and grid shows normally
+
+### Visual Result
+```
+┌─────────────────────────────┐
+│                             │  ← Empty space (padding)
+│                             │
+│                             │
+├─────────────────────────────┤
+│  Row 1 (full)               │
+├─────────────────────────────┤
+│  Row 2 (full)               │
+├─────────────────────────────┤
+│  Row 3 (15% peek)           │  ← Just a sliver visible
+└─────────────────────────────┘  ← Bottom of viewport
+```
+
+User scrolls down to reveal more rows.

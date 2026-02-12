@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { urlFor } from "@/sanity/lib/image";
 import VideoPlayer from "./VideoPlayer";
@@ -23,20 +23,11 @@ function renderCaptionInline(caption) {
   return text || null;
 }
 
-export default function MediaGallery({ project }) {
+export default function MediaGallery({ project, allowAutoPlay = true }) {
   const media = project?.media || [];
   const [activeIndex, setActiveIndex] = useState(0);
   const [videoKey, setVideoKey] = useState(0);
-  const prevProjectRef = useRef(project?.slug?.current);
-
-  // Reset activeIndex when project changes
-  useEffect(() => {
-    if (project?.slug?.current !== prevProjectRef.current) {
-      setActiveIndex(0);
-      setVideoKey((k) => k + 1);
-      prevProjectRef.current = project?.slug?.current;
-    }
-  }, [project?.slug?.current]);
+  // Note: Parent uses key={slug} so component remounts on project change - no manual reset needed
 
   const goToPrev = useCallback(() => {
     if (media.length <= 1) return;
@@ -86,7 +77,7 @@ export default function MediaGallery({ project }) {
   const thumbnailHeights = [60, 75, 90];
 
   return (
-    <div className="w-full p-4 mb-40">
+    <div className="w-full p-4">
       <div className="mb-2">
         <span>
           {project.title}. {project.year}.
@@ -96,16 +87,17 @@ export default function MediaGallery({ project }) {
 
       {/* Main display area */}
       <div className="w-full" style={{ height: "73vh" }}>
-        {activeItem._type === "mux.video" && activeItem.playbackId ? (
+        {activeItem?._type === "mux.video" && activeItem.playbackId ? (
           <VideoPlayer
             key={videoKey}
             playbackId={activeItem.playbackId}
             aspectRatio={activeItem.aspectRatio}
             autoPlay={true}
+            allowAutoPlay={allowAutoPlay}
             onPrevItem={media.length > 1 ? goToPrev : undefined}
             onNextItem={media.length > 1 ? goToNext : undefined}
           />
-        ) : activeItem._type === "image" ? (
+        ) : activeItem?._type === "image" ? (
           <div className="relative w-full h-full">
             <Image
               src={urlFor(activeItem).width(1400).quality(90).url()}

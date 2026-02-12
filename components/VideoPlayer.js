@@ -12,6 +12,7 @@ export default function VideoPlayer({
   playbackId,
   aspectRatio,
   autoPlay = false,
+  allowAutoPlay = true,
   onPrevItem,
   onNextItem,
 }) {
@@ -45,11 +46,14 @@ export default function VideoPlayer({
     const mobile = isMobile();
     const maxHeight = mobile ? 1440 : Infinity;
 
-    // Handler for when video has enough data to play through
-    const handleCanPlayThrough = () => {
+    // Handler for when video has enough data to play
+    // Listen for both 'canplay' and 'canplaythrough' - Safari sometimes fires
+    // 'canplay' but delays 'canplaythrough', causing the video to stay invisible
+    const handleReady = () => {
       setIsReady(true);
     };
-    video.addEventListener("canplaythrough", handleCanPlayThrough);
+    video.addEventListener("canplaythrough", handleReady);
+    video.addEventListener("canplay", handleReady);
 
     // Use hls.js for ALL browsers to force highest quality
     // Safari's native HLS uses ABR and doesn't allow forcing quality
@@ -59,7 +63,16 @@ export default function VideoPlayer({
 
     import("hls.js").then((HlsModule) => {
       const Hls = HlsModule.default;
-      if (!Hls.isSupported()) return;
+
+      // Fallback to native HLS for browsers that don't support hls.js (e.g., Safari on iOS)
+      if (!Hls.isSupported()) {
+        // Safari natively supports HLS - use video.src directly
+        if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = src;
+          video.load();
+        }
+        return;
+      }
 
       hls = new Hls({
         // Don't auto-start loading - we control when to start
@@ -119,25 +132,39 @@ export default function VideoPlayer({
         }
       });
 
+      // Handle HLS errors - fall back to native if needed
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          console.error("[VideoPlayer] Fatal HLS error:", data.type, data.details);
+          hls.destroy();
+          // Fall back to native HLS for Safari
+          if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            video.src = src;
+            video.load();
+          }
+        }
+      });
+
       // Load source FIRST (this fetches the manifest)
       hls.loadSource(src);
       // attachMedia is called in MANIFEST_PARSED after setting level
     });
 
     return () => {
-      video.removeEventListener("canplaythrough", handleCanPlayThrough);
+      video.removeEventListener("canplaythrough", handleReady);
+      video.removeEventListener("canplay", handleReady);
       if (hls) hls.destroy();
     };
   }, [playbackId, src]);
 
-  // Autoplay with sound when autoPlay prop is true and video is ready
+  // Autoplay with sound when autoPlay prop is true, video is ready, and allowed
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !isReady || !autoPlay || hasAutoPlayed) return;
+    if (!video || !isReady || !autoPlay || !allowAutoPlay || hasAutoPlayed) return;
 
     video.play().catch(() => {});
     setHasAutoPlayed(true);
-  }, [isReady, autoPlay, hasAutoPlayed]);
+  }, [isReady, autoPlay, allowAutoPlay, hasAutoPlayed]);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;

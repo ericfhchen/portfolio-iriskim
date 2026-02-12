@@ -4,38 +4,9 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { useRouter, useSearchParams } from "next/navigation";
 import { freshClient } from "@/sanity/lib/client";
 import { projectDetailQuery } from "@/sanity/lib/queries";
+import { smoothScrollTo, customEase } from "@/lib/easing";
 
 const ProjectContext = createContext(null);
-
-// Custom smooth scroll with easing
-function smoothScrollToTop(duration = 1400) {
-  const start = window.scrollY;
-  if (start === 0) return;
-
-  const startTime = performance.now();
-
-  // Ease-in expo, ease-out quint (firmer landing)
-  const customEase = (t) => {
-    if (t < 0.5) {
-      return Math.pow(2, 16 * t - 8) / 2;
-    }
-    return 1 - Math.pow(-2 * t + 2, 4) / 2;
-  };
-
-  function scroll(currentTime) {
-    const elapsed = currentTime - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    const eased = customEase(progress);
-
-    window.scrollTo(0, start * (1 - eased));
-
-    if (progress < 1) {
-      requestAnimationFrame(scroll);
-    }
-  }
-
-  requestAnimationFrame(scroll);
-}
 
 export function ProjectProvider({ children, projects }) {
   const router = useRouter();
@@ -55,6 +26,19 @@ export function ProjectProvider({ children, projects }) {
 
   // Whether gallery should be visible
   const [showGallery, setShowGallery] = useState(false);
+
+  // Whether we're in the middle of switching projects (to prevent flicker)
+  const [isSwitching, setIsSwitching] = useState(false);
+
+  // Animation phase for sequenced transitions
+  // 'idle' | 'scrolling-to-peek' | 'grid-animating' | 'gallery-fading-in' | 'ready'
+  const [animationPhase, setAnimationPhase] = useState('idle');
+
+  // Gallery opacity based on scroll/overlap (set by PortfolioShell, consumed by SidebarClient)
+  const [galleryScrollOpacity, setGalleryScrollOpacity] = useState(1);
+
+  // Track the target slug during programmatic navigation (ref for synchronous access)
+  const navigationTargetRef = useRef(null);
 
   // Fetch a project and cache it
   const fetchProject = useCallback(async (slug) => {
@@ -85,20 +69,32 @@ export function ProjectProvider({ children, projects }) {
       });
       setActiveSlug(slug);
       setShowGallery(true);
+      // SSR load - skip animation, go straight to ready
+      setAnimationPhase('ready');
     }
   }, []);
 
   // Sync with URL search params (for browser back/forward)
-  // This effect intentionally sets state to sync with external URL state
+  // Skip sync when we have a pending navigation target (we control the state, not the URL)
   useEffect(() => {
     const urlSlug = searchParams.get("project");
+
+    // If we're navigating programmatically, only accept URL changes that match our target
+    if (navigationTargetRef.current !== null) {
+      if (urlSlug === navigationTargetRef.current) {
+        // URL caught up to our target, clear the ref
+        navigationTargetRef.current = null;
+      } else {
+        // URL hasn't caught up yet, ignore this update
+        return;
+      }
+    }
+
     if (urlSlug !== activeSlug) {
       if (urlSlug) {
         // URL has a project, make sure we have data
         if (cacheRef.current[urlSlug]) {
-          // eslint-disable-next-line react-hooks/set-state-in-effect
           setActiveSlug(urlSlug);
-           
           setShowGallery(true);
         } else {
           // Need to fetch this project
@@ -110,10 +106,8 @@ export function ProjectProvider({ children, projects }) {
           });
         }
       } else {
-        // URL is just /, hide gallery
-         
+        // URL is just / - hide gallery
         setActiveSlug(null);
-         
         setShowGallery(false);
       }
     }
@@ -126,8 +120,19 @@ export function ProjectProvider({ children, projects }) {
     }
   }, [fetchProject]);
 
-  // Select a project: update URL, fetch data if needed, scroll to top
+  // Select a project: update URL, fetch data if needed, animate sequence
   const selectProject = useCallback(async (slug) => {
+    // If already viewing this project, do nothing
+    if (slug === activeSlug) return;
+
+    const wasFromLanding = !activeSlug;
+    const isAtTop = window.scrollY === 0;
+
+    // Hide gallery during switch to prevent flicker
+    if (activeSlug) {
+      setIsSwitching(true);
+    }
+
     // Prefetch should have already cached it, but fetch if not
     let project = cacheRef.current[slug];
     if (!project) {
@@ -135,17 +140,46 @@ export function ProjectProvider({ children, projects }) {
     }
 
     if (project) {
+      // Set navigation target BEFORE any state changes
+      navigationTargetRef.current = slug;
+
       setActiveSlug(slug);
       setShowGallery(true);
+      setGalleryScrollOpacity(1); // Reset gallery opacity
       router.push(`/?project=${slug}`, { scroll: false });
-      smoothScrollToTop(1400);
+
+      if (wasFromLanding || !isAtTop) {
+        // Scroll to top with custom easing
+        setAnimationPhase('scrolling-to-peek');
+        await smoothScrollTo(0, 1000, customEase);
+
+        // Animate grid to peek position
+        setAnimationPhase('grid-animating');
+        await new Promise(r => setTimeout(r, 800));
+
+        // Then fade in gallery
+        setAnimationPhase('gallery-fading-in');
+        setIsSwitching(false);
+        await new Promise(r => setTimeout(r, 300));
+
+        setAnimationPhase('ready');
+      } else {
+        // Already at top with a project - just crossfade
+        setAnimationPhase('gallery-fading-in');
+        await new Promise(r => setTimeout(r, 100));
+        setIsSwitching(false);
+        await new Promise(r => setTimeout(r, 300));
+        setAnimationPhase('ready');
+      }
     }
-  }, [fetchProject, router]);
+  }, [fetchProject, router, activeSlug]);
 
   // Close gallery and go back to home
   const closeProject = useCallback(() => {
+    setAnimationPhase('idle');
     setActiveSlug(null);
     setShowGallery(false);
+    setGalleryScrollOpacity(1);
     router.push("/", { scroll: false });
   }, [router]);
 
@@ -158,6 +192,10 @@ export function ProjectProvider({ children, projects }) {
         activeSlug,
         activeProject,
         showGallery,
+        isSwitching,
+        animationPhase,
+        galleryScrollOpacity,
+        setGalleryScrollOpacity,
         projects,
         projectCache,
         selectProject,

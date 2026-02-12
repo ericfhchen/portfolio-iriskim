@@ -6,11 +6,12 @@ import { useProject } from "@/context/ProjectContext";
 
 export default function SidebarClient({ artistName, projects }) {
   const { hoveredProject, hoverSource, setSidebarHover, clearHover } = useHover();
-  const { activeSlug, selectProject, prefetchProject } = useProject();
+  const { activeSlug, galleryScrollOpacity, selectProject, prefetchProject } = useProject();
 
-  // When any hover is active OR a project is selected, mute non-active items
+  // When any hover is active OR a project is selected (and gallery visible), mute non-active items
+  // When gallery is faded (scrolled past), sidebar should be fully visible (not muted)
   const hasActiveHover = !!hoveredProject;
-  const hasActiveProject = !!activeSlug;
+  const hasActiveProject = !!activeSlug && galleryScrollOpacity > 0.5;
   const shouldMuteOthers = hasActiveHover || hasActiveProject;
 
   const handleProjectClick = (e, slug) => {
