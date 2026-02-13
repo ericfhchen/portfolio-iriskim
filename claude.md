@@ -511,7 +511,7 @@ const {
   projectCache,            // Map of slug → project data
   selectProject,           // (slug) → updates URL, orchestrates animation sequence
   prefetchProject,         // (slug) → fetches in background (fire-and-forget)
-  closeProject,            // () → hides gallery, navigates to /
+  closeProject,            // () → animated sequence: fade out gallery → animate grid to landing → navigate to /
   seedProject,             // (project) → seeds cache with SSR data, sets phase to 'ready'
 } = useProject();
 ```
@@ -531,7 +531,13 @@ const {
      - Already at top with project: `gallery-fading-in` (crossfade) → `ready`
    - Video autoplay gates on `animationPhase === 'ready'`
 
-3. **Browser back/forward**:
+3. **Return to home (clicking title link)**:
+   - Click triggers `closeProject()` - orchestrates reverse animation:
+     - If scrolled: `scrolling-to-peek` (800ms) → `gallery-fading-out` (300ms) → `grid-returning` (800ms) → `idle`
+     - If at top: `gallery-fading-out` (300ms) → `grid-returning` (800ms) → `idle`
+   - URL updates to `/` after animation completes
+
+4. **Browser back/forward**:
    - `useEffect` watches `searchParams`
    - Syncs `activeSlug` and `showGallery` with URL
    - Fetches project data if not cached
@@ -605,6 +611,7 @@ When selecting a project, the grid animates to a "peek" position first, then the
 ### Animation Phases
 The `animationPhase` state in `ProjectContext` controls the sequence:
 
+**Forward (opening project):**
 | Phase | Duration | Description |
 |-------|----------|-------------|
 | `idle` | - | No project selected |
@@ -612,6 +619,13 @@ The `animationPhase` state in `ProjectContext` controls the sequence:
 | `grid-animating` | 800ms | Grid slides down to peek position |
 | `gallery-fading-in` | 300ms | Gallery fades in from opacity 0 |
 | `ready` | - | Animation complete, video can autoplay |
+
+**Reverse (returning home):**
+| Phase | Duration | Description |
+|-------|----------|-------------|
+| `gallery-fading-out` | 300ms | Gallery fades out |
+| `grid-returning` | 800ms | Grid slides up to landing position |
+| `idle` | - | Back to initial state |
 
 ### Grid Peek Position
 When a project is selected, the grid is pushed down so only ~15% of the first row peeks at the bottom of the viewport. This is calculated in `PortfolioShell.js`:
@@ -973,3 +987,207 @@ Key points:
 ```
 
 User scrolls down to reveal more rows.
+
+---
+
+## Grid Animation System (Return to Home)
+
+### Overview
+When closing a project (clicking the title link to return home), the grid animates smoothly from the peek position back to the landing position. This requires careful coordination between scroll position, padding values, and animation phases.
+
+### Key Challenge: Scroll + Padding Animation Conflict
+When the user is scrolled down while viewing a project and clicks to return home:
+- Grid is at peek padding (viewport height - 15% of first row)
+- User has scrolled, so `window.scrollY > 0`
+- Animating padding while scroll is non-zero causes visual jumping
+
+### Solution: Capture Visual Position, Snap Scroll, Then Animate
+
+The key insight is that the grid's **visual position** on screen equals `paddingTop - scrollY`. To animate smoothly:
+
+1. **Capture current visual position** when `gallery-fading-out` starts:
+   ```js
+   const currentVisualPadding = gridPeekTop - window.scrollY;
+   setGridReturnStart(currentVisualPadding);
+   ```
+
+2. **Snap scroll to 0 immediately** (no visual change because padding compensates):
+   ```js
+   if (window.scrollY > 0) {
+     window.scrollTo(0, 0);
+   }
+   ```
+
+3. **Animate padding** from `gridReturnStart` to landing position
+
+### Animation Phases for Closing
+
+| Phase | Duration | What Happens |
+|-------|----------|--------------|
+| `gallery-fading-out` | 300ms | Gallery opacity → 0, capture grid position, snap scroll |
+| `grid-returning` | 800ms | Padding animates from captured position to landing |
+| `idle` | - | Animation complete, URL updated to `/` |
+
+### State Management
+
+#### In ProjectContext.js
+```js
+// navigationTargetRef uses undefined vs null to distinguish states
+const navigationTargetRef = useRef(undefined);
+// undefined = no navigation in progress
+// null = navigating to home (searchParams.get("project") returns null)
+// "slug" = navigating to a project
+
+const closeProject = useCallback(async () => {
+  navigationTargetRef.current = null;
+
+  setAnimationPhase('gallery-fading-out');
+  await new Promise(r => setTimeout(r, 300));
+
+  setAnimationPhase('grid-returning');
+  await new Promise(r => setTimeout(r, 800));
+
+  setActiveSlug(null);
+  setShowGallery(false);
+  setAnimationPhase('idle');
+  router.push("/", { scroll: false });
+}, [router, activeSlug]);
+```
+
+#### In PortfolioShell.js
+```js
+// Persist landing padding even when gallery is open
+const landingPaddingRef = useRef(0);
+
+// Capture starting position for return animation
+const [gridReturnStart, setGridReturnStart] = useState(null);
+
+// Track if transition should be enabled (persists through phases)
+const [transitionEnabled, setTransitionEnabled] = useState(false);
+
+// Capture position and snap scroll when fading out
+useEffect(() => {
+  if (animationPhase === 'gallery-fading-out' && gridPeekTop) {
+    const currentVisualPadding = gridPeekTop - window.scrollY;
+    setGridReturnStart(currentVisualPadding);
+    if (window.scrollY > 0) {
+      window.scrollTo(0, 0);
+    }
+  } else if (animationPhase === 'idle') {
+    setGridReturnStart(null);
+  }
+}, [animationPhase, gridPeekTop]);
+```
+
+### Padding Logic (All Scenarios)
+
+```js
+paddingTop: (() => {
+  // Returning home: use captured position during fade-out
+  if (animationPhase === 'gallery-fading-out' && gridReturnStart !== null) {
+    return gridReturnStart;
+  }
+  // Animate to landing during grid-returning
+  if (animationPhase === 'grid-returning') {
+    return landingPaddingRef.current > 0 ? landingPaddingRef.current + 16 : 16;
+  }
+
+  // Going to project from landing: keep at landing during scroll
+  if (animationPhase === 'scrolling-to-peek' && !activeSlug) {
+    return gridTopPadding > 0 ? gridTopPadding + 16 : 16;
+  }
+  if (animationPhase === 'scrolling-to-peek' && activeSlug && !displayedProject) {
+    return gridTopPadding > 0 ? gridTopPadding + 16 : 16;
+  }
+
+  // Normal peek position when gallery is open
+  if (showGallery && gridPeekTop) {
+    return gridPeekTop;
+  }
+  // Landing position
+  return gridTopPadding > 0 ? gridTopPadding + 16 : 16;
+})()
+```
+
+### Transition State Management
+
+CSS transitions must persist through the entire animation sequence. If transition is disabled mid-animation, the padding will snap instead of animate.
+
+```js
+useEffect(() => {
+  if (
+    animationPhase === 'scrolling-to-peek' ||
+    animationPhase === 'grid-animating' ||
+    animationPhase === 'gallery-fading-in' ||
+    animationPhase === 'gallery-fading-out' ||
+    animationPhase === 'grid-returning'
+  ) {
+    setTransitionEnabled(true);
+  } else if (animationPhase === 'ready' || animationPhase === 'idle') {
+    // Delay disabling to prevent snap when phase changes
+    const timer = setTimeout(() => setTransitionEnabled(false), 100);
+    return () => clearTimeout(timer);
+  }
+}, [animationPhase]);
+```
+
+### Gallery Container Visibility
+
+Prevent gallery flash when coming from landing (no existing project):
+```js
+const shouldShowGalleryContainer =
+  displayedProject ||
+  (showGallery && (animationPhase !== 'scrolling-to-peek' || isSwitching));
+```
+
+- `displayedProject` - show if we have a project to display
+- `showGallery && !scrolling-to-peek` - show during most phases
+- `isSwitching` - show during project-to-project switches even while scrolling
+
+### Gallery Opacity (All Phases)
+
+```js
+const computedGalleryOpacity = (() => {
+  if (isFadingOut) return 0;
+  if (animationPhase === 'gallery-fading-out') return 0;
+  if (animationPhase === 'grid-animating') return 0;
+  if (animationPhase === 'scrolling-to-peek') return 0;
+  if (animationPhase === 'idle') return 0;
+  if (animationPhase === 'grid-returning') return 0;
+  // 'gallery-fading-in' or 'ready' - show based on scroll
+  return galleryScrollOpacity;
+})();
+```
+
+### selectProject Scenarios
+
+Two distinct paths based on where the user is coming from:
+
+**From Landing (wasFromLanding = true):**
+1. Set `activeSlug`, push URL
+2. Scroll to top if needed (padding stays at landing)
+3. Set `showGallery`, start `grid-animating` (padding → peek)
+4. `gallery-fading-in` → `ready`
+
+**From Project (wasFromLanding = false):**
+1. Set `activeSlug`, push URL, set `showGallery`
+2. Scroll to top if needed (padding stays at peek)
+3. `gallery-fading-in` (crossfade) → `ready`
+
+### Troubleshooting
+
+#### Grid jumps to top before animating
+- `gridReturnStart` not being captured correctly
+- Check that `gallery-fading-out` effect runs before scroll snaps
+
+#### Grid stutters/animates twice
+- `transitionEnabled` being toggled mid-animation
+- Ensure transition persists through all phases
+
+#### Gallery flashes during scroll from landing
+- `shouldShowGalleryContainer` returning true when it shouldn't
+- Check `displayedProject` is null when coming from landing
+
+#### Project-to-project causes grid jump
+- Padding logic needs to distinguish scrolling-from-landing vs scrolling-from-project
+- Check `!displayedProject` condition in padding logic

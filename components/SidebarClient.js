@@ -6,7 +6,7 @@ import { useProject } from "@/context/ProjectContext";
 
 export default function SidebarClient({ artistName, projects }) {
   const { hoveredProject, hoverSource, setSidebarHover, clearHover } = useHover();
-  const { activeSlug, galleryScrollOpacity, selectProject, prefetchProject } = useProject();
+  const { activeSlug, galleryScrollOpacity, selectProject, prefetchProject, closeProject } = useProject();
 
   // When any hover is active OR a project is selected (and gallery visible), mute non-active items
   // When gallery is faded (scrolled past), sidebar should be fully visible (not muted)
@@ -28,7 +28,13 @@ export default function SidebarClient({ artistName, projects }) {
     <nav className="fixed top-0 left-0 h-screen w-1/6 p-4 flex flex-col gap-8 overflow-y-auto">
 
       <div className="flex flex-row gap-8">
-        <Link href="/">
+        <Link
+          href="/"
+          onClick={(e) => {
+            e.preventDefault();
+            closeProject();
+          }}
+        >
           {artistName}
         </Link>
         <span

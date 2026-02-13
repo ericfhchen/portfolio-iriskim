@@ -32,13 +32,15 @@ export function ProjectProvider({ children, projects }) {
 
   // Animation phase for sequenced transitions
   // 'idle' | 'scrolling-to-peek' | 'grid-animating' | 'gallery-fading-in' | 'ready'
+  // Return phases: 'gallery-fading-out' | 'grid-returning'
   const [animationPhase, setAnimationPhase] = useState('idle');
 
   // Gallery opacity based on scroll/overlap (set by PortfolioShell, consumed by SidebarClient)
   const [galleryScrollOpacity, setGalleryScrollOpacity] = useState(1);
 
   // Track the target slug during programmatic navigation (ref for synchronous access)
-  const navigationTargetRef = useRef(null);
+  // Uses undefined to mean "no navigation in progress", null means "navigating to home"
+  const navigationTargetRef = useRef(undefined);
 
   // Fetch a project and cache it
   const fetchProject = useCallback(async (slug) => {
@@ -80,10 +82,10 @@ export function ProjectProvider({ children, projects }) {
     const urlSlug = searchParams.get("project");
 
     // If we're navigating programmatically, only accept URL changes that match our target
-    if (navigationTargetRef.current !== null) {
+    if (navigationTargetRef.current !== undefined) {
       if (urlSlug === navigationTargetRef.current) {
         // URL caught up to our target, clear the ref
-        navigationTargetRef.current = null;
+        navigationTargetRef.current = undefined;
       } else {
         // URL hasn't caught up yet, ignore this update
         return;
@@ -144,16 +146,23 @@ export function ProjectProvider({ children, projects }) {
       navigationTargetRef.current = slug;
 
       setActiveSlug(slug);
-      setShowGallery(true);
-      setGalleryScrollOpacity(1); // Reset gallery opacity
       router.push(`/?project=${slug}`, { scroll: false });
 
-      if (wasFromLanding || !isAtTop) {
-        // Scroll to top with custom easing
+      if (wasFromLanding) {
+        // FROM LANDING: Always go through scrolling-to-peek phase to ensure transition
+        // is enabled before the padding changes (even if no actual scroll is needed)
         setAnimationPhase('scrolling-to-peek');
-        await smoothScrollTo(0, 1000, customEase);
 
-        // Animate grid to peek position
+        if (!isAtTop) {
+          await smoothScrollTo(0, 1000, customEase);
+        } else {
+          // Give effect time to enable transition before proceeding
+          await new Promise(r => setTimeout(r, 50));
+        }
+
+        // Now show gallery and animate grid to peek
+        setShowGallery(true);
+        setGalleryScrollOpacity(1);
         setAnimationPhase('grid-animating');
         await new Promise(r => setTimeout(r, 800));
 
@@ -164,9 +173,17 @@ export function ProjectProvider({ children, projects }) {
 
         setAnimationPhase('ready');
       } else {
-        // Already at top with a project - just crossfade
+        // FROM PROJECT: already at peek, just scroll if needed and crossfade
+        setShowGallery(true);
+        setGalleryScrollOpacity(1);
+
+        if (!isAtTop) {
+          // Scroll to top while staying at peek (no padding change)
+          setAnimationPhase('scrolling-to-peek');
+          await smoothScrollTo(0, 800, customEase);
+        }
+
         setAnimationPhase('gallery-fading-in');
-        await new Promise(r => setTimeout(r, 100));
         setIsSwitching(false);
         await new Promise(r => setTimeout(r, 300));
         setAnimationPhase('ready');
@@ -174,14 +191,37 @@ export function ProjectProvider({ children, projects }) {
     }
   }, [fetchProject, router, activeSlug]);
 
-  // Close gallery and go back to home
-  const closeProject = useCallback(() => {
-    setAnimationPhase('idle');
+  // Close gallery and go back to home with animated sequence
+  // Also handles scrolling back to landing position when already on home page
+  const closeProject = useCallback(async () => {
+    // If already at home with no project, just scroll to top (landing position)
+    if (!activeSlug) {
+      if (window.scrollY > 0) {
+        setAnimationPhase('scrolling-to-peek');
+        await smoothScrollTo(0, 800, customEase);
+        setAnimationPhase('idle');
+      }
+      return;
+    }
+
+    // Set navigation target to null (going home) - searchParams.get("project") returns null when no param
+    navigationTargetRef.current = null;
+
+    // Phase 1: Fade out gallery (PortfolioShell captures position and snaps scroll)
+    setAnimationPhase('gallery-fading-out');
+    await new Promise(r => setTimeout(r, 300));
+
+    // Phase 2: Animate grid from captured position to landing
+    setAnimationPhase('grid-returning');
+    await new Promise(r => setTimeout(r, 800));
+
+    // Phase 3: Clear state and update URL
     setActiveSlug(null);
     setShowGallery(false);
     setGalleryScrollOpacity(1);
+    setAnimationPhase('idle');
     router.push("/", { scroll: false });
-  }, [router]);
+  }, [router, activeSlug]);
 
   // Get the active project data
   const activeProject = activeSlug ? projectCache[activeSlug] : null;
