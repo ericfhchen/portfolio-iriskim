@@ -4,6 +4,7 @@ import { useRef, useEffect, useState } from "react";
 import MediaGallery from "./MediaGallery";
 import ProjectGrid from "./ProjectGrid";
 import { useProject } from "@/context/ProjectContext";
+import { materialEase } from "@/lib/easing";
 
 export default function PortfolioShell({ projects, initialProject }) {
   const shellRef = useRef(null);
@@ -18,6 +19,7 @@ export default function PortfolioShell({ projects, initialProject }) {
     animationPhase,
     galleryScrollOpacity,
     setGalleryScrollOpacity,
+    jsAnimationTarget,
     selectProject,
     prefetchProject,
     seedProject,
@@ -44,8 +46,7 @@ export default function PortfolioShell({ projects, initialProject }) {
   // Track if grid transition should be enabled (persists through animation sequence)
   const [transitionEnabled, setTransitionEnabled] = useState(false);
 
-  // Starting position for grid return animation (captured when fading out)
-  const [gridReturnStart, setGridReturnStart] = useState(null);
+
 
   // Seed the cache with SSR-fetched project on mount
   useEffect(() => {
@@ -126,34 +127,70 @@ export default function PortfolioShell({ projects, initialProject }) {
     return () => window.removeEventListener('resize', calculate);
   }, [isPaddingReady]); // Only depends on grid being ready
 
-  // Capture grid's visual position when starting to close (fade out)
-  // This enables smooth animation: snap scroll to 0 immediately (no visual change),
-  // then animate padding from captured position to landing
-  useEffect(() => {
-    if (animationPhase === 'gallery-fading-out' && gridPeekTop) {
-      // Capture where grid currently appears: peek padding minus scroll offset
-      const currentVisualPadding = gridPeekTop - window.scrollY;
-      setGridReturnStart(currentVisualPadding);
 
-      // Snap scroll to 0 immediately - visual position unchanged because padding matches
-      if (window.scrollY > 0) {
-        window.scrollTo(0, 0);
-      }
-    } else if (animationPhase === 'idle') {
-      setGridReturnStart(null);
+
+  // JS animation for synchronized scroll+padding (used by grid-returning-js phase)
+  // IMPORTANT: Directly manipulate DOM to avoid React re-renders during animation
+  useEffect(() => {
+    if (animationPhase !== 'grid-returning-js' || !jsAnimationTarget || !gridRef.current) {
+      return;
     }
-  }, [animationPhase, gridPeekTop]);
+
+    const gridElement = gridRef.current;
+    const startScrollY = window.scrollY;
+    const startPadding = gridPeekTop || 0;
+    // Calculate target padding - this MUST match what React will compute in 'idle' phase
+    const landingPadding = landingPaddingRef.current;
+    const targetPadding = landingPadding > 0 ? landingPadding + 16 : 16;
+    const duration = 800;
+    const startTime = performance.now();
+
+    // Disable CSS transition during JS animation
+    gridElement.style.transition = 'none';
+    // Set initial padding directly on DOM
+    gridElement.style.paddingTop = `${startPadding}px`;
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = materialEase(progress);
+
+      // Update both scroll and padding in the same frame - direct DOM manipulation
+      const newScrollY = startScrollY * (1 - eased); // Simpler: goes from startScrollY to 0
+      const newPadding = startPadding + (targetPadding - startPadding) * eased;
+
+      window.scrollTo(0, newScrollY);
+      gridElement.style.paddingTop = `${newPadding}px`;
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Ensure we land exactly on target values
+        window.scrollTo(0, 0);
+        gridElement.style.paddingTop = `${targetPadding}px`;
+
+        // Use requestAnimationFrame to let the browser paint the final frame
+        // before we notify React - prevents jitter from React re-render
+        requestAnimationFrame(() => {
+          jsAnimationTarget.onComplete?.();
+        });
+      }
+    }
+
+    requestAnimationFrame(animate);
+  }, [animationPhase, jsAnimationTarget, gridPeekTop]);
 
   // Manage transition state to prevent mid-animation stutter
   // Enable transition BEFORE grid animation starts (during scroll/fade-out phases)
   // Keep it enabled through the full sequence, disable with delay after completion
+  // NOTE: grid-returning-js uses JS animation, not CSS transition
   useEffect(() => {
     if (
       animationPhase === 'scrolling-to-peek' ||    // Enable before grid-animating
       animationPhase === 'grid-animating' ||
       animationPhase === 'gallery-fading-in' ||    // Keep enabled through fade-in
-      animationPhase === 'gallery-fading-out' ||   // Enable before grid-returning
-      animationPhase === 'grid-returning'
+      animationPhase === 'gallery-fading-out'      // Enable before grid-returning
+      // NOTE: grid-returning and grid-returning-js don't need CSS transition
     ) {
       setTransitionEnabled(true);
     } else if (animationPhase === 'ready' || animationPhase === 'idle') {
@@ -206,6 +243,7 @@ export default function PortfolioShell({ projects, initialProject }) {
       if (!gridRef.current) return;
 
       // Don't update opacity during animation phases - keep it at 1
+      // This also prevents re-renders during JS animation
       if (animationPhase !== 'ready') {
         return;
       }
@@ -249,10 +287,17 @@ export default function PortfolioShell({ projects, initialProject }) {
   const computedGalleryOpacity = (() => {
     if (isFadingOut) return 0;
     if (animationPhase === 'gallery-fading-out') return 0;
-    if (animationPhase === 'grid-animating' || animationPhase === 'scrolling-to-peek' || animationPhase === 'idle' || animationPhase === 'grid-returning') return 0;
-    // In 'gallery-fading-in' or 'ready' phase, show based on scroll opacity
+    if (animationPhase === 'grid-animating' || animationPhase === 'scrolling-to-peek' || animationPhase === 'idle' || animationPhase === 'grid-returning' || animationPhase === 'grid-returning-js') return 0;
+    // In 'gallery-fading-in', 'gallery-preparing-fade-out', or 'ready' phase, show based on scroll opacity
     return galleryScrollOpacity;
   })();
+
+  // Determine if gallery transition should be enabled
+  // Enable transition slightly before opacity changes to prevent flicker
+  const galleryTransitionEnabled =
+    animationPhase === 'gallery-fading-in' ||
+    animationPhase === 'gallery-fading-out' ||
+    animationPhase === 'gallery-preparing-fade-out';
 
   return (
     <div ref={shellRef}>
@@ -268,7 +313,7 @@ export default function PortfolioShell({ projects, initialProject }) {
             height: peekAmount ? `calc(100vh - ${peekAmount}px)` : '85vh',
             zIndex: 10, // Above grid so it can receive pointer events
             opacity: computedGalleryOpacity,
-            transition: (animationPhase === 'gallery-fading-in' || animationPhase === 'gallery-fading-out') ? "opacity 300ms ease-out" : "none",
+            transition: galleryTransitionEnabled ? "opacity 300ms ease-out" : "none",
             pointerEvents: computedGalleryOpacity < 0.1 ? 'none' : 'auto',
             overflow: 'hidden',
           }}
@@ -294,39 +339,48 @@ export default function PortfolioShell({ projects, initialProject }) {
           // When returning to home, animate back to landing padding (use ref for correct value)
           // Otherwise use landing padding from state
           paddingTop: (() => {
-            // Returning home: use captured start position during fade-out, animate to landing during grid-returning
-            if (animationPhase === 'gallery-fading-out' && gridReturnStart !== null) {
-              return gridReturnStart;
-            }
-            if (animationPhase === 'grid-returning') {
-              // Animate to landing position
-              const landing = landingPaddingRef.current;
-              return landing > 0 ? landing + 16 : 16;
+            // During JS animation, padding is set directly on DOM - return undefined to not interfere
+            // Actually we need a value here, but JS animation overrides it via direct DOM manipulation
+            if (animationPhase === 'grid-returning-js') {
+              // This value is immediately overwritten by the JS animation
+              return gridPeekTop;
             }
 
-            // Going to project from landing: keep at landing during scroll, then animate to peek
-            // But NOT when switching projects (already at peek)
-            if (animationPhase === 'scrolling-to-peek' && !activeSlug) {
-              // This case is for home page scroll-to-top, not for going to project
-              return gridTopPadding > 0 ? gridTopPadding + 16 : 16;
+            // Returning home: fade out gallery first, then JS animates grid to landing
+            if (animationPhase === 'gallery-fading-out') {
+              return gridPeekTop;
             }
-            if (animationPhase === 'scrolling-to-peek' && activeSlug && !displayedProject) {
-              // Coming from landing to project - keep at landing during scroll
-              return gridTopPadding > 0 ? gridTopPadding + 16 : 16;
+
+            // Opening project: CSS transition animates padding from landing to peek
+            // while JS animates scroll from current to 0 - both happen simultaneously
+            if (animationPhase === 'grid-animating') {
+              // If we already have a displayed project, we're switching projects
+              // Stay at peek padding (no padding animation, only scroll animation)
+              if (displayedProject) {
+                return gridPeekTop;
+              }
+              // Coming from landing - wait for transition to be enabled before changing padding
+              if (!transitionEnabled) {
+                const landing = landingPaddingRef.current;
+                return landing > 0 ? landing + 16 : 16;
+              }
+              return gridPeekTop;
             }
 
             // Normal peek position when gallery is open
-            if (showGallery && gridPeekTop) {
+            // BUT NOT during idle phase - we need to stay at landing until grid-animating starts
+            if (showGallery && gridPeekTop && animationPhase !== 'idle') {
               return gridPeekTop;
             }
-            // Landing position
-            return gridTopPadding > 0 ? gridTopPadding + 16 : 16;
+            // Landing position - use ref for most accurate value (state may be stale after gallery close)
+            const landingPadding = landingPaddingRef.current || gridTopPadding;
+            return landingPadding > 0 ? landingPadding + 16 : 16;
           })(),
           // Use transitionEnabled to persist transition through animation sequence
           // This prevents stutter when phase changes mid-animation
-          transition: transitionEnabled
-            ? 'padding-top 800ms cubic-bezier(0.4, 0, 0.2, 1)'
-            : 'none',
+          // IMPORTANT: Disable CSS transition during JS animation
+          // IMPORTANT: The cubic-bezier must match materialEase in lib/easing.js exactly
+          transition: (transitionEnabled && animationPhase !== 'grid-returning-js') ? 'padding-top 800ms cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
           opacity: isPaddingReady ? 1 : 0,
         }}
       >

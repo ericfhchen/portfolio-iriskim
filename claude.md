@@ -1191,3 +1191,160 @@ Two distinct paths based on where the user is coming from:
 #### Project-to-project causes grid jump
 - Padding logic needs to distinguish scrolling-from-landing vs scrolling-from-project
 - Check `!displayedProject` condition in padding logic
+
+---
+
+## Synchronized Scroll + Padding Animation (Close Animation Fix)
+
+### Problem
+When returning home from a project while scrolled, the grid animation had stuttering/jitter issues:
+1. CSS transition on padding and JS animation on scroll had mismatched easing curves
+2. React re-renders during animation caused frame drops
+3. End-of-animation jitter when React took over from JS animation
+
+### Solution: Pure JavaScript Animation
+
+Instead of mixing CSS transitions with JS scroll animation, use **pure JavaScript** to animate both scroll and padding in the same `requestAnimationFrame` callback.
+
+#### Key Files
+- `lib/easing.js` - Contains `materialEase` function matching CSS `cubic-bezier(0.4, 0, 0.2, 1)`
+- `context/ProjectContext.js` - Orchestrates animation phases, exposes `jsAnimationTarget` state
+- `components/PortfolioShell.js` - Runs JS animation via `useEffect`, directly manipulates DOM
+
+#### Animation Phases for Closing (Updated)
+| Phase | Duration | Description |
+|-------|----------|-------------|
+| `gallery-preparing-fade-out` | ~2 frames | Enables CSS transition before opacity changes (prevents flicker) |
+| `gallery-fading-out` | 300ms | Gallery fades out via CSS transition |
+| `grid-returning-js` | 800ms | JS animates both scroll and padding simultaneously |
+| `idle` | - | Animation complete |
+
+#### The JS Animation Effect
+```js
+// In PortfolioShell.js
+useEffect(() => {
+  if (animationPhase !== 'grid-returning-js' || !jsAnimationTarget || !gridRef.current) {
+    return;
+  }
+
+  const gridElement = gridRef.current;
+  const startScrollY = window.scrollY;
+  const startPadding = gridPeekTop || 0;
+  const targetPadding = landingPaddingRef.current > 0 ? landingPaddingRef.current + 16 : 16;
+  const duration = 800;
+  const startTime = performance.now();
+
+  // Disable CSS transition - we're driving this with JS
+  gridElement.style.transition = 'none';
+  gridElement.style.paddingTop = `${startPadding}px`;
+
+  function animate(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = materialEase(progress);
+
+    // Update BOTH in the same frame - direct DOM manipulation
+    const newScrollY = startScrollY * (1 - eased);
+    const newPadding = startPadding + (targetPadding - startPadding) * eased;
+
+    window.scrollTo(0, newScrollY);
+    gridElement.style.paddingTop = `${newPadding}px`;
+
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    } else {
+      // Ensure exact final values
+      window.scrollTo(0, 0);
+      gridElement.style.paddingTop = `${targetPadding}px`;
+
+      // Wait one frame before notifying React - prevents jitter
+      requestAnimationFrame(() => {
+        jsAnimationTarget.onComplete?.();
+      });
+    }
+  }
+
+  requestAnimationFrame(animate);
+}, [animationPhase, jsAnimationTarget, gridPeekTop]);
+```
+
+### Key Learnings
+
+#### 1. Direct DOM Manipulation for Smooth Animation
+- **Don't use React state** (`setState`) during animation - each call triggers a re-render
+- **Directly set `element.style.paddingTop`** for 60fps animation
+- Only use React state for the final position after animation completes
+
+#### 2. Synchronized Easing
+- Both scroll and padding must use the **exact same easing function**
+- `materialEase` in JS matches `cubic-bezier(0.4, 0, 0.2, 1)` in CSS
+- Even small differences cause visible desynchronization
+
+#### 3. Prevent End-of-Animation Jitter
+- When JS animation ends and React re-renders, there can be a brief jump
+- **Fix 1**: Use `requestAnimationFrame` before calling `onComplete()` - lets browser paint final frame
+- **Fix 2**: Ensure React's computed padding matches JS's target padding exactly
+- **Fix 3**: Use `landingPaddingRef.current` (ref) instead of `gridTopPadding` (state) - state may be stale
+
+#### 4. Prevent Gallery Flicker on Fade-Out
+- CSS transition must be enabled BEFORE opacity changes, not in the same render
+- Add a preparation phase (`gallery-preparing-fade-out`) that only enables transition
+- Use double `requestAnimationFrame` to ensure browser applies transition before opacity change:
+  ```js
+  setAnimationPhase('gallery-preparing-fade-out');
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  setAnimationPhase('gallery-fading-out');  // Now opacity changes with transition active
+  ```
+
+#### 5. Disable CSS Transition During JS Animation
+```js
+// In the style object
+transition: (transitionEnabled && animationPhase !== 'grid-returning-js')
+  ? 'padding-top 800ms cubic-bezier(0.4, 0, 0.2, 1)'
+  : 'none',
+```
+
+### Easing Function (lib/easing.js)
+```js
+/**
+ * CSS cubic-bezier(0.4, 0, 0.2, 1) equivalent - Material Design standard easing
+ * Must match the CSS transition timing function exactly for synchronized animations
+ */
+export const materialEase = (t) => {
+  const p1x = 0.4, p1y = 0, p2x = 0.2, p2y = 1;
+
+  // Newton-Raphson iteration to solve bezier
+  let x = t;
+  for (let i = 0; i < 8; i++) {
+    const bx = 3 * p1x * x * (1 - x) * (1 - x) + 3 * p2x * x * x * (1 - x) + x * x * x;
+    const dx = 3 * p1x * (1 - x) * (1 - x) - 6 * p1x * x * (1 - x) + 3 * p2x * 2 * x * (1 - x) - 3 * p2x * x * x + 3 * x * x;
+    if (Math.abs(bx - t) < 0.0001) break;
+    x -= (bx - t) / dx;
+  }
+  return 3 * p1y * x * (1 - x) * (1 - x) + 3 * p2y * x * x * (1 - x) + x * x * x;
+};
+```
+
+### Troubleshooting
+
+#### Animation stutters throughout
+- Check if React state is being updated during animation
+- Ensure using direct DOM manipulation, not `setState`
+- Verify scroll handler returns early during animation phases
+
+#### Jitter at end of animation
+- React's computed padding doesn't match JS's target
+- Use ref (`landingPaddingRef.current`) not state (`gridTopPadding`) for landing value
+- Add `requestAnimationFrame` before `onComplete()`
+
+#### Gallery flickers before fading out
+- CSS transition and opacity change happening in same render
+- Add `gallery-preparing-fade-out` phase with double rAF delay
+
+#### Visual position equation
+`visualTop = paddingTop - scrollY`
+
+To keep visual position constant while changing both:
+- Decrease padding by X → visual moves up by X
+- Decrease scroll by X → visual moves down by X
+- Net effect: both decrease together = smooth animation to new position

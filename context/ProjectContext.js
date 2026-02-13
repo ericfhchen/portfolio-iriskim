@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { useRouter, useSearchParams } from "next/navigation";
 import { freshClient } from "@/sanity/lib/client";
 import { projectDetailQuery } from "@/sanity/lib/queries";
-import { smoothScrollTo, customEase } from "@/lib/easing";
+import { smoothScrollTo, materialEase } from "@/lib/easing";
 
 const ProjectContext = createContext(null);
 
@@ -41,6 +41,10 @@ export function ProjectProvider({ children, projects }) {
   // Track the target slug during programmatic navigation (ref for synchronous access)
   // Uses undefined to mean "no navigation in progress", null means "navigating to home"
   const navigationTargetRef = useRef(undefined);
+
+  // JS animation target - when set, PortfolioShell will animate padding via JS instead of CSS
+  // { targetPadding: number, duration: number, onComplete: () => void } | null
+  const [jsAnimationTarget, setJsAnimationTarget] = useState(null);
 
   // Fetch a project and cache it
   const fetchProject = useCallback(async (slug) => {
@@ -146,24 +150,18 @@ export function ProjectProvider({ children, projects }) {
       navigationTargetRef.current = slug;
 
       setActiveSlug(slug);
-      router.push(`/?project=${slug}`, { scroll: false });
+      setShowGallery(true);
+      setGalleryScrollOpacity(1);
 
       if (wasFromLanding) {
-        // FROM LANDING: Always go through scrolling-to-peek phase to ensure transition
-        // is enabled before the padding changes (even if no actual scroll is needed)
-        setAnimationPhase('scrolling-to-peek');
-
-        if (!isAtTop) {
-          await smoothScrollTo(0, 1000, customEase);
-        } else {
-          // Give effect time to enable transition before proceeding
-          await new Promise(r => setTimeout(r, 50));
-        }
-
-        // Now show gallery and animate grid to peek
-        setShowGallery(true);
-        setGalleryScrollOpacity(1);
+        // FROM LANDING: Animate scroll and padding simultaneously to peek position
+        // Start the grid animation phase (enables CSS transition on padding)
         setAnimationPhase('grid-animating');
+
+        // Scroll to top over 800ms while padding also transitions
+        if (!isAtTop) {
+          smoothScrollTo(0, 800, materialEase);
+        }
         await new Promise(r => setTimeout(r, 800));
 
         // Then fade in gallery
@@ -172,21 +170,22 @@ export function ProjectProvider({ children, projects }) {
         await new Promise(r => setTimeout(r, 300));
 
         setAnimationPhase('ready');
+        router.push(`/?project=${slug}`, { scroll: false });
       } else {
-        // FROM PROJECT: already at peek, just scroll if needed and crossfade
-        setShowGallery(true);
-        setGalleryScrollOpacity(1);
-
+        // FROM PROJECT: already at peek padding, but may be scrolled down
+        // Animate scroll back to top while keeping padding at peek
         if (!isAtTop) {
-          // Scroll to top while staying at peek (no padding change)
-          setAnimationPhase('scrolling-to-peek');
-          await smoothScrollTo(0, 800, customEase);
+          setAnimationPhase('grid-animating');
+          smoothScrollTo(0, 800, materialEase);
+          await new Promise(r => setTimeout(r, 800));
         }
 
         setAnimationPhase('gallery-fading-in');
         setIsSwitching(false);
         await new Promise(r => setTimeout(r, 300));
+
         setAnimationPhase('ready');
+        router.push(`/?project=${slug}`, { scroll: false });
       }
     }
   }, [fetchProject, router, activeSlug]);
@@ -198,7 +197,7 @@ export function ProjectProvider({ children, projects }) {
     if (!activeSlug) {
       if (window.scrollY > 0) {
         setAnimationPhase('scrolling-to-peek');
-        await smoothScrollTo(0, 800, customEase);
+        await smoothScrollTo(0, 800, materialEase);
         setAnimationPhase('idle');
       }
       return;
@@ -207,18 +206,29 @@ export function ProjectProvider({ children, projects }) {
     // Set navigation target to null (going home) - searchParams.get("project") returns null when no param
     navigationTargetRef.current = null;
 
-    // Phase 1: Fade out gallery (PortfolioShell captures position and snaps scroll)
+    // Phase 1a: Enable transition before changing opacity (prevents flicker)
+    setAnimationPhase('gallery-preparing-fade-out');
+    // Wait for browser to apply the transition property
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    // Phase 1b: Fade out gallery
     setAnimationPhase('gallery-fading-out');
     await new Promise(r => setTimeout(r, 300));
 
-    // Phase 2: Animate grid from captured position to landing
-    setAnimationPhase('grid-returning');
-    await new Promise(r => setTimeout(r, 800));
+    // Phase 2: Animate grid from peek to landing using JS animation
+    // This triggers PortfolioShell to run the animation via useEffect
+    setAnimationPhase('grid-returning-js');
+
+    // Wait for animation to complete (PortfolioShell will call onComplete)
+    await new Promise(resolve => {
+      setJsAnimationTarget({ onComplete: resolve });
+    });
 
     // Phase 3: Clear state and update URL
     setActiveSlug(null);
     setShowGallery(false);
     setGalleryScrollOpacity(1);
+    setJsAnimationTarget(null);
     setAnimationPhase('idle');
     router.push("/", { scroll: false });
   }, [router, activeSlug]);
@@ -236,6 +246,7 @@ export function ProjectProvider({ children, projects }) {
         animationPhase,
         galleryScrollOpacity,
         setGalleryScrollOpacity,
+        jsAnimationTarget,
         projects,
         projectCache,
         selectProject,
