@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
 import Image from "next/image";
 import { urlFor } from "@/sanity/lib/image";
 import VideoPlayer from "./VideoPlayer";
@@ -23,11 +23,24 @@ function renderCaptionInline(caption) {
   return text || null;
 }
 
-export default function MediaGallery({ project, allowAutoPlay = true }) {
+const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay = true }, ref) {
   const media = project?.media || [];
   const [activeIndex, setActiveIndex] = useState(0);
   const [videoKey, setVideoKey] = useState(0);
   // Note: Parent uses key={slug} so component remounts on project change - no manual reset needed
+
+  // Ref to VideoPlayer for pause/resume control
+  const videoPlayerRef = useRef(null);
+
+  // Expose pause/resume to parent
+  useImperativeHandle(ref, () => ({
+    pauseVideo: () => {
+      videoPlayerRef.current?.pause();
+    },
+    resumeVideo: () => {
+      videoPlayerRef.current?.resume();
+    },
+  }), []);
 
   const goToPrev = useCallback(() => {
     if (media.length <= 1) return;
@@ -89,6 +102,7 @@ export default function MediaGallery({ project, allowAutoPlay = true }) {
       <div className="w-full" style={{ height: "73vh" }}>
         {activeItem?._type === "mux.video" && activeItem.playbackId ? (
           <VideoPlayer
+            ref={videoPlayerRef}
             key={videoKey}
             playbackId={activeItem.playbackId}
             aspectRatio={activeItem.aspectRatio}
@@ -134,7 +148,7 @@ export default function MediaGallery({ project, allowAutoPlay = true }) {
                 <button
                   onClick={() => handleThumbnailClick(index)}
                   className={`relative flex-shrink-0 cursor-pointer border-0 p-0 ${
-                    isActive ? "opacity-100" : "opacity-50 hover:opacity-80"
+                    isActive ? "opacity-100" : "opacity-100 hover:opacity-50"
                   }`}
                   style={{ height: `${height}px` }}
                 >
@@ -145,7 +159,14 @@ export default function MediaGallery({ project, allowAutoPlay = true }) {
                   />
                 </button>
                 {mediaLabel && (
-                  <span className="text-xs text-muted mt-1">{mediaLabel}</span>
+                  <span className={`text-xs mt-1 flex items-center gap-1 ${isActive ? 'text-black' : 'text-muted'}`}>
+                    {isActive && (
+                      <svg width="6" height="8" viewBox="0 0 6 8" fill="currentColor">
+                        <path d="M0 0L6 4L0 8V0Z" />
+                      </svg>
+                    )}
+                    {mediaLabel}
+                  </span>
                 )}
               </div>
             );
@@ -154,4 +175,6 @@ export default function MediaGallery({ project, allowAutoPlay = true }) {
       )}
     </div>
   );
-}
+});
+
+export default MediaGallery;

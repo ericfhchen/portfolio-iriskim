@@ -10,6 +10,7 @@ export default function PortfolioShell({ projects, initialProject }) {
   const shellRef = useRef(null);
   const galleryRef = useRef(null);
   const gridRef = useRef(null);
+  const mediaGalleryRef = useRef(null);
 
   const {
     activeSlug,
@@ -45,6 +46,9 @@ export default function PortfolioShell({ projects, initialProject }) {
 
   // Track if grid transition should be enabled (persists through animation sequence)
   const [transitionEnabled, setTransitionEnabled] = useState(false);
+
+  // Track if grid is overlapping the gallery (for pointer events and video pause)
+  const [isGridOverlapping, setIsGridOverlapping] = useState(false);
 
 
 
@@ -242,12 +246,6 @@ export default function PortfolioShell({ projects, initialProject }) {
     const handleScroll = () => {
       if (!gridRef.current) return;
 
-      // Don't update opacity during animation phases - keep it at 1
-      // This also prevents re-renders during JS animation
-      if (animationPhase !== 'ready') {
-        return;
-      }
-
       // Get the first row of tiles, not the grid container (which has padding)
       const rowContainer = gridRef.current.querySelector('.w-full.flex.flex-col');
       const firstRow = rowContainer?.children[0];
@@ -257,6 +255,21 @@ export default function PortfolioShell({ projects, initialProject }) {
       // Use peekAmount if available, otherwise estimate 15% of viewport
       const effectivePeek = peekAmount || window.innerHeight * 0.15;
       const galleryBottom = window.innerHeight - effectivePeek;
+
+      // ALWAYS update overlap state (used for pointer events and video pause)
+      // This must run regardless of animation phase
+      // Add threshold so peek position doesn't count as overlapping
+      // This prevents immediate pause after autoplay (peek puts grid ~0.01px inside gallery bottom)
+      const overlapThreshold = effectivePeek; // ~15% of first row height (~35-40px)
+      const overlapping = firstRowTop < (galleryBottom - overlapThreshold);
+      setIsGridOverlapping(overlapping);
+
+      // Don't update opacity during animation phases - keep it at 1
+      // This also prevents re-renders during JS animation
+      if (animationPhase !== 'ready') {
+        return;
+      }
+
       const fadeEndY = window.innerHeight * 0.5; // Fully faded at 50% viewport
 
       if (firstRowTop >= galleryBottom) {
@@ -276,6 +289,17 @@ export default function PortfolioShell({ projects, initialProject }) {
     handleScroll(); // Initial check
     return () => window.removeEventListener('scroll', handleScroll);
   }, [displayedProject, peekAmount, animationPhase, setGalleryScrollOpacity]);
+
+  // Pause video when grid overlaps gallery, resume when overlap ends
+  useEffect(() => {
+    if (animationPhase !== 'ready') return;
+
+    if (isGridOverlapping) {
+      mediaGalleryRef.current?.pauseVideo();
+    } else {
+      mediaGalleryRef.current?.resumeVideo();
+    }
+  }, [isGridOverlapping, animationPhase]);
 
   // Keep gallery container visible during transitions to prevent layout shift
   // Don't show during scrolling-to-peek from landing (prevents flash) - only show if switching projects
@@ -311,15 +335,18 @@ export default function PortfolioShell({ projects, initialProject }) {
             left: 'calc(100% / 6)', // Sidebar width
             right: 0,
             height: peekAmount ? `calc(100vh - ${peekAmount}px)` : '85vh',
-            zIndex: 10, // Above grid so it can receive pointer events
+            // When gallery is fading, drop z-index below grid so tiles receive clicks
+            zIndex: computedGalleryOpacity < 0.1 ? 1 : 10,
             opacity: computedGalleryOpacity,
             transition: galleryTransitionEnabled ? "opacity 300ms ease-out" : "none",
-            pointerEvents: computedGalleryOpacity < 0.1 ? 'none' : 'auto',
+            // Disable pointer events when gallery is faded out, re-enable when visible
+            pointerEvents: isGridOverlapping ? 'none' : 'auto',
             overflow: 'hidden',
           }}
         >
           {displayedProject && (
             <MediaGallery
+              ref={mediaGalleryRef}
               key={displayedProject.slug?.current}
               project={displayedProject}
               allowAutoPlay={animationPhase === 'ready'}

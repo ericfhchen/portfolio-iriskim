@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 
 // Check if device is mobile (used for quality cap)
 function isMobile() {
@@ -8,17 +8,39 @@ function isMobile() {
   return window.innerWidth <= 768 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
 
-export default function VideoPlayer({
+const VideoPlayer = forwardRef(function VideoPlayer({
   playbackId,
   aspectRatio,
   autoPlay = false,
   allowAutoPlay = true,
   onPrevItem,
   onNextItem,
-}) {
+}, ref) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // Track if video was playing before an external pause (for resume logic)
+  const wasPlayingBeforePauseRef = useRef(false);
+
+  // Expose pause/resume methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    pause: () => {
+      const video = videoRef.current;
+      if (video && !video.paused) {
+        wasPlayingBeforePauseRef.current = true;
+        video.pause();
+      }
+    },
+    resume: () => {
+      const video = videoRef.current;
+      if (video && video.paused && wasPlayingBeforePauseRef.current) {
+        video.play().catch(() => {});
+        wasPlayingBeforePauseRef.current = false;
+      }
+    },
+    isPaused: () => videoRef.current?.paused ?? true,
+  }), []);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasAutoPlayed, setHasAutoPlayed] = useState(false);
@@ -295,15 +317,21 @@ export default function VideoPlayer({
 
   // Calculate wrapper dimensions using aspect ratio
   // Keep consistent sizing before AND after video loads to prevent resize jump
+  // When fullscreen, fill the container and let video use object-fit: contain
   const wrapperStyle = {
     position: "relative",
-    display: "inline-block",
-    maxHeight: "73vh",
-    maxWidth: "100%",
+    display: isFullscreen ? "flex" : "inline-block",
+    justifyContent: "center",
+    alignItems: "center",
+    ...(isFullscreen
+      ? { width: "100%", height: "100%" }
+      : { maxHeight: "73vh", maxWidth: "100%" }
+    ),
   };
 
   // Always apply aspect ratio sizing if available (not just before ready)
-  if (parsedAspectRatio) {
+  // But NOT in fullscreen mode - let video fill the screen
+  if (!isFullscreen && parsedAspectRatio) {
     wrapperStyle.aspectRatio = parsedAspectRatio;
     // Use width-based sizing constrained by maxHeight
     // This ensures video never overflows viewport
@@ -314,7 +342,12 @@ export default function VideoPlayer({
   return (
     <div
       ref={containerRef}
-      style={{ display: "flex", alignItems: "flex-start" }}
+      style={{
+        display: "flex",
+        alignItems: isFullscreen ? "center" : "flex-start",
+        justifyContent: isFullscreen ? "center" : "flex-start",
+        ...(isFullscreen && { width: "100%", height: "100%", background: "#000" }),
+      }}
       onMouseMove={resetHideTimer}
       onMouseEnter={resetHideTimer}
     >
@@ -324,6 +357,7 @@ export default function VideoPlayer({
           ref={videoRef}
           poster={poster}
           playsInline
+          loop
           onClick={togglePlay}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
@@ -342,6 +376,7 @@ export default function VideoPlayer({
             display: "block",
             opacity: isReady ? 1 : 0,
             transition: "opacity 200ms ease-in",
+            objectFit: isFullscreen ? "contain" : undefined,
           }}
         />
 
@@ -353,13 +388,13 @@ export default function VideoPlayer({
               bottom: 0,
               left: 0,
               right: 0,
-              padding: "8px 12px",
+              padding: "8px 10px 8px 10px",
               opacity: showControls ? 1 : 0,
               transition: "opacity 300ms",
               pointerEvents: showControls ? "auto" : "none",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "white", fontSize: "9px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "white", fontSize: "9px" }}>
               {/* Play/Pause - fixed width */}
               <button
                 onClick={togglePlay}
@@ -373,7 +408,7 @@ export default function VideoPlayer({
               <button
                 onClick={toggleMute}
                 className="cursor-pointer hover:opacity-70 transition-opacity"
-                style={{ width: "38px", textAlign: "left" }}
+                style={{ width: "34px", textAlign: "left" }}
               >
                 {isMuted ? "unmute" : "mute"}
               </button>
@@ -397,7 +432,7 @@ export default function VideoPlayer({
               </div>
 
               {/* Time - fixed width */}
-              <span style={{ width: "70px", textAlign: "right", opacity: 0.7, fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ width: "60px", textAlign: "right", opacity: 0.7, fontVariantNumeric: "tabular-nums" }}>
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
 
@@ -415,4 +450,6 @@ export default function VideoPlayer({
       </div>
     </div>
   );
-}
+});
+
+export default VideoPlayer;
