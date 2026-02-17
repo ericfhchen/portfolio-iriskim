@@ -235,6 +235,9 @@ export default function PortfolioShell({ projects, initialProject }) {
 
   // Handle "keep browsing" click - scroll grid so first row aligns with top
   const handleKeepBrowsingClick = () => {
+    // Guard: Ignore if already animating
+    if (isAnimatingKeepBrowsingRef.current) return;
+
     const rowContainer = gridRef.current?.querySelector('.w-full.flex.flex-col');
     const firstRow = rowContainer?.children[0];
     if (!firstRow) return;
@@ -322,6 +325,9 @@ export default function PortfolioShell({ projects, initialProject }) {
 
   // Handle "back to project" click - scroll back up to show gallery
   const handleBackToProjectClick = () => {
+    // Guard: Ignore if already animating
+    if (isAnimatingKeepBrowsingRef.current) return;
+
     // Start fade out of button text immediately (CSS transition handles the fade)
     setButtonPhase('fading-out');
 

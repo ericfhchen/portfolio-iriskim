@@ -144,6 +144,12 @@ export function ProjectProvider({ children, projects }) {
       return;
     }
 
+    // Guard: Ignore clicks if any animation is in progress
+    // Only 'idle' (landing) and 'ready' (viewing project) allow new selections
+    if (animationPhase !== 'idle' && animationPhase !== 'ready') {
+      return;
+    }
+
     const wasFromLanding = !activeSlug;
     const isAtTop = window.scrollY === 0;
 
@@ -211,11 +217,20 @@ export function ProjectProvider({ children, projects }) {
         router.push(`/?project=${slug}`, { scroll: false });
       }
     }
-  }, [fetchProject, router, activeSlug]);
+  }, [fetchProject, router, activeSlug, animationPhase]);
 
   // Close gallery and go back to home with animated sequence
   // Also handles scrolling back to landing position when already on home page
   const closeProject = useCallback(async () => {
+    // Guard: Ignore clicks if close animation is already running
+    if (
+      animationPhase === 'gallery-preparing-fade-out' ||
+      animationPhase === 'gallery-fading-out' ||
+      animationPhase === 'grid-returning-js'
+    ) {
+      return;
+    }
+
     // If already at home with no project, just scroll to top (landing position)
     if (!activeSlug) {
       if (window.scrollY > 0) {
@@ -254,7 +269,7 @@ export function ProjectProvider({ children, projects }) {
     setJsAnimationTarget(null);
     setAnimationPhase('idle');
     router.push("/", { scroll: false });
-  }, [router, activeSlug]);
+  }, [router, activeSlug, animationPhase]);
 
   // Get the active project data
   const activeProject = activeSlug ? projectCache[activeSlug] : null;
