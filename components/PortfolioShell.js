@@ -257,7 +257,7 @@ export default function PortfolioShell({ projects, initialProject }) {
     const effectivePeek = peekAmount || window.innerHeight * 0.15;
     const galleryBottom = window.innerHeight - effectivePeek;
     const fadeEndY = window.innerHeight * 0.5;
-    const overlapThreshold = effectivePeek;
+    const fadeStartY = galleryBottom * 0.9; // Start fading at 15% overlap
 
     // Skip React scroll handler during animation
     isAnimatingKeepBrowsingRef.current = true;
@@ -282,21 +282,23 @@ export default function PortfolioShell({ projects, initialProject }) {
       if (galleryElement) {
         // Estimate where first row will be after this scroll
         const estimatedFirstRowTop = firstRowTop - (currentScrollY - startY);
+        const fadeStartY = galleryBottom * 0.9; // Start fading at 15% overlap
 
         let opacity;
-        if (estimatedFirstRowTop >= galleryBottom) {
+        if (estimatedFirstRowTop >= fadeStartY) {
           opacity = 1;
         } else if (estimatedFirstRowTop <= fadeEndY) {
           opacity = 0;
         } else {
-          const fadeProgress = (galleryBottom - estimatedFirstRowTop) / (galleryBottom - fadeEndY);
-          opacity = 1 - fadeProgress;
+          // Fade from 0.75 to 0 - immediate visual feedback that gallery is inactive
+          const fadeProgress = (fadeStartY - estimatedFirstRowTop) / (fadeStartY - fadeEndY);
+          opacity = 0.65 * (1 - fadeProgress);
         }
 
         galleryElement.style.opacity = opacity;
 
-        // Also update overlap state for pointer events
-        const overlapping = estimatedFirstRowTop < (galleryBottom - overlapThreshold);
+        // Also update overlap state for pointer events - sync with fade start
+        const overlapping = estimatedFirstRowTop < fadeStartY;
         galleryElement.style.pointerEvents = overlapping ? 'none' : 'auto';
       }
 
@@ -363,19 +365,22 @@ export default function PortfolioShell({ projects, initialProject }) {
         const firstRow = rowContainer?.children[0];
         if (firstRow) {
           const estimatedFirstRowTop = firstRow.getBoundingClientRect().top;
+          const fadeStartY = galleryBottom * 0.9; // Start fading at 15% overlap
 
           let opacity;
-          if (estimatedFirstRowTop >= galleryBottom) {
+          if (estimatedFirstRowTop >= fadeStartY) {
             opacity = 1;
           } else if (estimatedFirstRowTop <= fadeEndY) {
             opacity = 0;
           } else {
-            const fadeProgress = (galleryBottom - estimatedFirstRowTop) / (galleryBottom - fadeEndY);
-            opacity = 1 - fadeProgress;
+            // Fade from 0.75 to 0 - immediate visual feedback that gallery is inactive
+            const fadeProgress = (fadeStartY - estimatedFirstRowTop) / (fadeStartY - fadeEndY);
+            opacity = 0.65 * (1 - fadeProgress);
           }
 
           galleryElement.style.opacity = opacity;
-          const overlapping = estimatedFirstRowTop < (galleryBottom - effectivePeek);
+          // Sync clickability with fade start
+          const overlapping = estimatedFirstRowTop < fadeStartY;
           galleryElement.style.pointerEvents = overlapping ? 'none' : 'auto';
         }
       }
@@ -456,12 +461,13 @@ export default function PortfolioShell({ projects, initialProject }) {
       const effectivePeek = peekAmount || window.innerHeight * 0.15;
       const galleryBottom = window.innerHeight - effectivePeek;
 
+      const fadeEndY = window.innerHeight * 0.5; // Fully faded at 50% viewport
+      const fadeStartY = galleryBottom * 0.9; // Start fading at 15% overlap
+
       // ALWAYS update overlap state (used for pointer events and video pause)
       // This must run regardless of animation phase
-      // Add threshold so peek position doesn't count as overlapping
-      // This prevents immediate pause after autoplay (peek puts grid ~0.01px inside gallery bottom)
-      const overlapThreshold = effectivePeek; // ~15% of first row height (~35-40px)
-      const overlapping = firstRowTop < (galleryBottom - overlapThreshold);
+      // Use fadeStartY so clickability syncs with when fade begins
+      const overlapping = firstRowTop < fadeStartY;
       // Only update state if value changed (prevents re-renders during scroll animation)
       if (overlapping !== prevOverlappingRef.current) {
         prevOverlappingRef.current = overlapping;
@@ -474,19 +480,17 @@ export default function PortfolioShell({ projects, initialProject }) {
         return;
       }
 
-      const fadeEndY = window.innerHeight * 0.5; // Fully faded at 50% viewport
-
       let newOpacity;
-      if (firstRowTop >= galleryBottom) {
-        // Grid hasn't reached gallery yet
+      if (firstRowTop >= fadeStartY) {
+        // Grid hasn't reached fade start yet
         newOpacity = 1;
       } else if (firstRowTop <= fadeEndY) {
         // Grid past fade end point
         newOpacity = 0;
       } else {
-        // Linear fade as grid overlaps gallery
-        const progress = (galleryBottom - firstRowTop) / (galleryBottom - fadeEndY);
-        newOpacity = 1 - progress;
+        // Fade from 0.75 to 0 - immediate visual feedback that gallery is inactive
+        const progress = (fadeStartY - firstRowTop) / (fadeStartY - fadeEndY);
+        newOpacity = 0.65 * (1 - progress);
       }
 
       // Only update if opacity changed significantly (prevents re-renders during scroll)
@@ -730,6 +734,7 @@ export default function PortfolioShell({ projects, initialProject }) {
               key={displayedProject.slug?.current}
               project={displayedProject}
               allowAutoPlay={animationPhase === 'ready'}
+              controlsDisabled={isGridOverlapping}
             />
           )}
         </div>

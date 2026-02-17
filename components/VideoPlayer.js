@@ -13,6 +13,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   aspectRatio,
   autoPlay = false,
   allowAutoPlay = true,
+  controlsDisabled = false,
   onPrevItem,
   onNextItem,
   onReady: onReadyCallback,
@@ -256,6 +257,8 @@ const VideoPlayer = forwardRef(function VideoPlayer({
 
   // Keyboard controls
   useEffect(() => {
+    if (controlsDisabled) return;
+
     const handleKeyDown = (e) => {
       // Don't capture if user is typing in an input
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
@@ -284,7 +287,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [togglePlay, toggleMute, toggleFullscreen, onPrevItem, onNextItem]);
+  }, [controlsDisabled, togglePlay, toggleMute, toggleFullscreen, onPrevItem, onNextItem]);
 
   // Auto-hide controls
   const resetHideTimer = useCallback(() => {
@@ -379,7 +382,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
           poster={poster}
           playsInline
           loop
-          onClick={togglePlay}
+          onClick={controlsDisabled ? undefined : togglePlay}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onPlay={() => {
@@ -390,12 +393,13 @@ const VideoPlayer = forwardRef(function VideoPlayer({
             setIsPlaying(false);
             setShowControls(true);
           }}
-          className="cursor-pointer"
+          className={controlsDisabled ? "" : "cursor-pointer"}
           style={{
             width: "100%",
             height: "100%",
             display: "block",
             objectFit: isFullscreen ? "contain" : undefined,
+            pointerEvents: controlsDisabled ? "none" : "auto",
           }}
         />
 
@@ -408,9 +412,9 @@ const VideoPlayer = forwardRef(function VideoPlayer({
               left: 0,
               right: 0,
               padding: "8px 10px 8px 10px",
-              opacity: showControls ? 1 : 0,
+              opacity: showControls && !controlsDisabled ? 1 : 0,
               transition: "opacity 300ms",
-              pointerEvents: showControls ? "auto" : "none",
+              pointerEvents: showControls && !controlsDisabled ? "auto" : "none",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "white", fontSize: "9px" }}>

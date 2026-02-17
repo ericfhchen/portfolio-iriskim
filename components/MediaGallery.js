@@ -5,6 +5,9 @@ import Image from "next/image";
 import { urlFor } from "@/sanity/lib/image";
 import VideoPlayer from "./VideoPlayer";
 
+const SCROLL_SPEED = 250; // pixels per second
+const HOVER_ZONE_WIDTH = 70; // px - matches gradient width
+
 // Render Portable Text blocks as inline text
 function renderCaptionInline(caption) {
   if (!caption || !Array.isArray(caption)) return null;
@@ -23,7 +26,7 @@ function renderCaptionInline(caption) {
   return text || null;
 }
 
-const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay = true }, ref) {
+const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay = true, controlsDisabled = false }, ref) {
   const media = project?.media || [];
   const [activeIndex, setActiveIndex] = useState(0);
   // Note: Parent uses key={slug} so component remounts on project change - no manual reset needed
@@ -190,6 +193,128 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
 
   const thumbnailHeights = [60, 75, 90];
 
+  // Horizontal scroll system for thumbnail overflow
+  const scrollContainerRef = useRef(null);
+  const scrollAnimationRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const newCanScrollLeft = el.scrollLeft > 1;
+    const newCanScrollRight = el.scrollLeft < el.scrollWidth - el.clientWidth - 1;
+    console.log('[Scroll] updateScrollState:', {
+      scrollLeft: el.scrollLeft,
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      maxScroll: el.scrollWidth - el.clientWidth,
+      canScrollLeft: newCanScrollLeft,
+      canScrollRight: newCanScrollRight,
+    });
+    setCanScrollLeft(newCanScrollLeft);
+    setCanScrollRight(newCanScrollRight);
+  }, []);
+
+  // Check overflow on mount, resize, and when thumbnails change
+  useEffect(() => {
+    updateScrollState();
+
+    const handleResize = () => updateScrollState();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [updateScrollState, media.length]);
+
+  // Update scroll state when thumbnails finish loading
+  useEffect(() => {
+    if (thumbnailsReady) {
+      // Small delay to ensure layout is complete
+      const timer = setTimeout(updateScrollState, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [thumbnailsReady, updateScrollState]);
+
+  // Scroll event listener
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    el.addEventListener('scroll', updateScrollState);
+    return () => el.removeEventListener('scroll', updateScrollState);
+  }, [updateScrollState]);
+
+  const startAutoScroll = useCallback((direction) => {
+    console.log('[Scroll] startAutoScroll:', direction);
+    let lastTime = performance.now();
+    let frameCount = 0;
+
+    const animate = (currentTime) => {
+      const deltaTime = (currentTime - lastTime) / 1000;
+      lastTime = currentTime;
+
+      const el = scrollContainerRef.current;
+      if (!el) {
+        console.log('[Scroll] animate: no element, stopping');
+        return;
+      }
+
+      // Check if we can still scroll in this direction
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      const canScrollInDirection = direction === 'left'
+        ? el.scrollLeft > 1
+        : el.scrollLeft < maxScroll - 1;
+
+      if (!canScrollInDirection) {
+        console.log('[Scroll] animate: reached boundary, stopping', {
+          direction,
+          scrollLeft: el.scrollLeft,
+          maxScroll,
+        });
+        scrollAnimationRef.current = null;
+        updateScrollState();
+        return;
+      }
+
+      const beforeScroll = el.scrollLeft;
+      const delta = SCROLL_SPEED * deltaTime * (direction === 'left' ? -1 : 1);
+      el.scrollLeft += delta;
+      const afterScroll = el.scrollLeft;
+
+      frameCount++;
+      if (frameCount % 30 === 0) { // Log every 30 frames (~0.5s)
+        console.log('[Scroll] animate frame:', {
+          direction,
+          delta,
+          beforeScroll,
+          afterScroll,
+          actualDelta: afterScroll - beforeScroll,
+        });
+      }
+
+      updateScrollState();
+      scrollAnimationRef.current = requestAnimationFrame(animate);
+    };
+
+    scrollAnimationRef.current = requestAnimationFrame(animate);
+  }, [updateScrollState]);
+
+  const stopAutoScroll = useCallback(() => {
+    console.log('[Scroll] stopAutoScroll called, had animation:', !!scrollAnimationRef.current);
+    if (scrollAnimationRef.current) {
+      cancelAnimationFrame(scrollAnimationRef.current);
+      scrollAnimationRef.current = null;
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollAnimationRef.current) {
+        cancelAnimationFrame(scrollAnimationRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="w-full p-4">
       <div className="mb-2">
@@ -226,6 +351,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                   aspectRatio={item.aspectRatio}
                   autoPlay={true}
                   allowAutoPlay={allowAutoPlay && layer.zIndex === 0}
+                  controlsDisabled={controlsDisabled}
                   onPrevItem={media.length > 1 ? goToPrev : undefined}
                   onNextItem={media.length > 1 ? goToNext : undefined}
                   onReady={
@@ -254,62 +380,159 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
         })}
       </div>
 
-      {/* Thumbnail row */}
+      {/* Thumbnail row with horizontal scroll */}
       {media.length > 1 && (
         <div
-          className="flex items-start gap-1 mt-1"
+          className="relative mt-1"
           style={{
             opacity: thumbnailOpacity,
             transition: "opacity 200ms ease-out",
           }}
         >
-          {media.map((item, index) => {
-            const height = thumbnailHeights[index % thumbnailHeights.length];
-            const isActive = index === activeIndex;
+          {/* Scrollable thumbnail container */}
+          <div
+            ref={scrollContainerRef}
+            className="flex items-start gap-1 thumbnail-scroll-container"
+            style={{
+              overflowX: 'auto',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+              WebkitOverflowScrolling: 'touch',
+            }}
+          >
+            {media.map((item, index) => {
+              const height = thumbnailHeights[index % thumbnailHeights.length];
+              const isActive = index === activeIndex;
 
-            let thumbSrc;
-            if (item._type === "image") {
-              thumbSrc = urlFor(item).height(height * 2).quality(60).url();
-            } else if (item._type === "mux.video" && item.playbackId) {
-              thumbSrc = `https://image.mux.com/${item.playbackId}/thumbnail.jpg?height=${height * 2}&time=0`;
-            }
+              let thumbSrc;
+              if (item._type === "image") {
+                thumbSrc = urlFor(item).height(height * 2).quality(60).url();
+              } else if (item._type === "mux.video" && item.playbackId) {
+                thumbSrc = `https://image.mux.com/${item.playbackId}/thumbnail.jpg?height=${height * 2}&time=0`;
+              }
 
-            if (!thumbSrc) return null;
+              if (!thumbSrc) return null;
 
-            const mediaLabel = project.projectCode
-              ? `${project.projectCode}_${String(index + 1).padStart(2, "0")}`
-              : null;
+              const mediaLabel = project.projectCode
+                ? `${project.projectCode}_${String(index + 1).padStart(2, "0")}`
+                : null;
 
-            return (
-              <div key={item._key || index} className="flex flex-col items-start">
-                <button
-                  onClick={() => handleThumbnailClick(index)}
-                  className={`relative flex-shrink-0 cursor-pointer border-0 p-0 ${
-                    isActive ? "opacity-100" : "opacity-100 hover:opacity-50"
-                  }`}
-                  style={{ height: `${height}px` }}
-                >
-                  <img
-                    src={thumbSrc}
-                    alt={`Thumbnail ${index + 1}`}
-                    className="h-full w-auto object-cover"
-                    onLoad={handleThumbnailLoad}
-                    onError={handleThumbnailLoad}
-                  />
-                </button>
-                {mediaLabel && (
-                  <span className={`text-xs mt-1 flex items-center gap-1 ${isActive ? 'text-black' : 'text-muted'}`}>
-                    {isActive && (
-                      <svg width="6" height="8" viewBox="0 0 6 8" fill="currentColor">
-                        <path d="M0 0L6 4L0 8V0Z" />
-                      </svg>
-                    )}
-                    {mediaLabel}
-                  </span>
-                )}
-              </div>
-            );
-          })}
+              return (
+                <div key={item._key || index} className="flex flex-col items-start flex-shrink-0">
+                  <button
+                    onClick={() => handleThumbnailClick(index)}
+                    className={`relative flex-shrink-0 cursor-pointer border-0 p-0 ${
+                      isActive ? "opacity-100" : "opacity-100 hover:opacity-50"
+                    }`}
+                    style={{ height: `${height}px` }}
+                  >
+                    <img
+                      src={thumbSrc}
+                      alt={`Thumbnail ${index + 1}`}
+                      className="h-full w-auto object-cover"
+                      onLoad={handleThumbnailLoad}
+                      onError={handleThumbnailLoad}
+                    />
+                  </button>
+                  {mediaLabel && (
+                    <span className={`text-xs mt-1 flex items-center gap-1 ${isActive ? 'text-black' : 'text-muted'}`}>
+                      {isActive && (
+                        item._type === "mux.video" ? (
+                          <svg width="6" height="8" viewBox="0 0 6 8" fill="currentColor">
+                            <path d="M0 0L6 4L0 8V0Z" />
+                          </svg>
+                        ) : (
+                          <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+                            <rect width="8" height="8" />
+                            <path d="M1 7L2.5 4L4 5.5L5.5 2L7 4V7H1Z" fill="white" />
+                          </svg>
+                        )
+                      )}
+                      {mediaLabel}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Left gradient overlay */}
+          {canScrollLeft && (
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: HOVER_ZONE_WIDTH,
+                background: 'linear-gradient(to right, white, transparent)',
+                pointerEvents: 'none',
+                zIndex: 2,
+              }}
+            />
+          )}
+
+          {/* Right gradient overlay */}
+          {canScrollRight && (
+            <div
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: HOVER_ZONE_WIDTH,
+                background: 'linear-gradient(to left, white, transparent)',
+                pointerEvents: 'none',
+                zIndex: 2,
+              }}
+            />
+          )}
+
+          {/* Left hover zone for auto-scroll */}
+          {canScrollLeft && (
+            <div
+              onMouseEnter={() => {
+                console.log('[Scroll] LEFT zone mouseEnter');
+                startAutoScroll('left');
+              }}
+              onMouseLeave={() => {
+                console.log('[Scroll] LEFT zone mouseLeave');
+                stopAutoScroll();
+              }}
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: HOVER_ZONE_WIDTH,
+                zIndex: 3,
+                cursor: 'w-resize',
+              }}
+            />
+          )}
+
+          {/* Right hover zone for auto-scroll */}
+          {canScrollRight && (
+            <div
+              onMouseEnter={() => {
+                console.log('[Scroll] RIGHT zone mouseEnter');
+                startAutoScroll('right');
+              }}
+              onMouseLeave={() => {
+                console.log('[Scroll] RIGHT zone mouseLeave');
+                stopAutoScroll();
+              }}
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: HOVER_ZONE_WIDTH,
+                zIndex: 3,
+                cursor: 'e-resize',
+              }}
+            />
+          )}
         </div>
       )}
     </div>

@@ -3,30 +3,14 @@
 ## Project Context
 Portfolio site for Iris Kim using Next.js 15 and Sanity CMS.
 
----
-
-## Document Maintenance (AUTO)
-1. Update relevant sections (don't append - overwrite outdated info)
-2. Remove resolved issues immediately
-3. Keep under 250 lines
-
----
-
-## Architecture
-
-### Layout: `layout.js` → `SiteLayoutClient` → `SidebarClient` + `{children}`
-- Sidebar: fixed, `w-1/6`
-- Main: `ml-[16.666667%]` offset
-
-### Key Files
+## Key Files
 | Purpose | File |
 |---------|------|
+| Main shell + grid + animations | `components/PortfolioShell.js` |
+| Media gallery + thumbnails | `components/MediaGallery.js` |
+| Sidebar + hover | `components/SidebarClient.js` |
 | Project state & URL sync | `context/ProjectContext.js` |
 | Hover state + scroll handler | `context/HoverContext.js` |
-| Grid layout algorithm | `lib/gridLayout.js` |
-| Animation easing | `lib/easing.js` |
-| Main shell component | `components/PortfolioShell.js` |
-| Sidebar + hover | `components/SidebarClient.js` |
 
 ---
 
@@ -38,38 +22,29 @@ Tailwind opacity classes don't work. Use inline styles:
 style={{ opacity: condition ? 0.3 : 1, transition: "opacity 300ms" }}
 ```
 
-### Sanity: Use `freshClient`
+### Sanity
 ```js
 import { freshClient } from "@/sanity/lib/client";
 ```
 
-### HLS: Force hls.js for ALL browsers (Safari ignores native quality hints)
+### HLS Video
+Force hls.js for ALL browsers (Safari ignores native quality hints, Chrome returns 'maybe' for HLS).
 
 ---
 
-## Sidebar Hover Scroll System
+## Hover Zone Auto-Scroll Pattern (`MediaGallery.js`)
+When hover zones conditionally render based on scroll state, the element can disappear while cursor is over it - no `mouseLeave` fires and animation continues forever.
 
-### Architecture (`SidebarClient.js` + `PortfolioShell.js` + `HoverContext.js`)
-Sidebar hover triggers grid scroll to show hovered project's row.
-
-### Oscillation Detection (`SidebarClient.js`)
-Cursor on boundary between items causes rapid mouseenter oscillation (~10ms intervals).
-Solution: Track recent hovers; if oscillating between same 2 slugs within 100ms, stay locked to first.
+**Solution**: Check scroll boundaries inside the RAF loop and self-terminate:
 ```js
-if (state.oscillationPair?.has(slug) && state.oscillationPair?.has(state.committedSlug)) return;
+const canScrollInDirection = direction === 'left'
+  ? el.scrollLeft > 1
+  : el.scrollLeft < maxScroll - 1;
+if (!canScrollInDirection) {
+  scrollAnimationRef.current = null;
+  return;
+}
 ```
-
-### Scroll Debouncing (`PortfolioShell.js`)
-- `RAPID_SWEEP_THRESHOLD = 80ms` — slower hovers scroll immediately
-- `SWEEP_DEBOUNCE = 100ms` — rapid sweeping waits for settle
-- Track `currentScrollTargetRowRef` to skip redundant scrolls to same row
-- Reset row ref via `clearCallback` when mouse leaves sidebar
-
-### HoverContext Registration
-```js
-registerScrollHandler(handleSidebarHoverScroll, handleHoverClear);
-```
-Second param is called on `clearHover()` to reset scroll state.
 
 ---
 
@@ -78,58 +53,24 @@ Second param is called on `clearHover()` to reset scroll state.
 ### Phases
 `idle` → `scrolling-to-peek` → `grid-animating` → `gallery-fading-in` → `ready` → `gallery-preparing-fade-out` → `gallery-fading-out` → `grid-returning-js`
 
-### Key Rule: JS Animation for Close
-CSS transition + JS scroll desync. Use pure JS animation for both in same `requestAnimationFrame`.
-
-### Overlap Detection Buffer
-Peek position has sub-pixel precision issues. Add threshold buffer:
-```js
-const overlapThreshold = effectivePeek;
-const overlapping = firstRowTop < (galleryBottom - overlapThreshold);
-```
-
-### Button Toggle Animation (`PortfolioShell.js`)
-"keep browsing" ↔ "back to project" button uses sequenced fade:
-- `buttonPhase`: `'idle'` | `'fading-out'` | `'fading-in'`
-- Opacity only 1 when `buttonPhase === 'idle'`, otherwise 0
-- Scroll animation starts immediately on click (no delay before scroll)
-- Button fades out via CSS while scroll runs, fades in after scroll completes
-- Manual scroll overlap changes also trigger fade sequence
-- All fade transitions: 300ms
+### Key Rules
+- Use pure JS animation (RAF) for scroll + style changes together - CSS transitions desync
+- Overlap detection needs threshold buffer for sub-pixel precision
 
 ---
 
-## Grid System
+## Sidebar Hover Scroll
 
-- `MIN_ROW_HEIGHT`: 200px, `MAX_ROW_HEIGHT`: 250px
-- Landing: 2 rows + 15% peek of 3rd
-- Project open: 15% of first row peeks at viewport bottom
-- Grid hidden until padding calculated (prevents flash)
+### Oscillation Detection (`SidebarClient.js`)
+Cursor on boundary causes rapid mouseenter oscillation. Track recent hovers; if oscillating between same 2 slugs within 100ms, stay locked to first.
 
----
-
-## Video (Mux)
-
-- HLS: `https://stream.mux.com/{ID}.m3u8`
-- MP4: `https://stream.mux.com/{ID}/1080p.mp4`
-- Autoplay gates on `animationPhase === 'ready'`
-- Safari: listen for both `canplay` and `canplaythrough`
-
----
-
-## URL Structure
-- Home: `/`
-- Project: `/?project=slug`
-- Redirect regex: `[a-zA-Z0-9_-]+` (not `.*` — causes infinite loop)
+### Scroll Debouncing (`PortfolioShell.js`)
+- `RAPID_SWEEP_THRESHOLD = 80ms` — slower hovers scroll immediately
+- `SWEEP_DEBOUNCE = 100ms` — rapid sweeping waits for settle
 
 ---
 
 ## Workflow Rules
 - **Animation changes**: Write plan, get approval, test incrementally
-- **Never**: CSS transition + JS scroll combos, new positioning strategies without listing tradeoffs
-- **Fix failures**: Stop, analyze root cause, don't cycle through random fixes
-- **Revert**: Only the specific thing mentioned
-
-## Browser Quirks
-- Chrome `canPlayType` returns 'maybe' for HLS — force hls.js
-- Local dev: `http://` not `https://`
+- **Never**: CSS transition + JS scroll combos
+- **Fix failures**: Stop, analyze root cause, don't cycle randomly
