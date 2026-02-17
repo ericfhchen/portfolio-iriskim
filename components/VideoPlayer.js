@@ -15,10 +15,15 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   allowAutoPlay = true,
   onPrevItem,
   onNextItem,
+  onReady: onReadyCallback,
 }, ref) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // Store callback in ref to avoid re-running effect when callback changes
+  const onReadyCallbackRef = useRef(onReadyCallback);
+  onReadyCallbackRef.current = onReadyCallback;
 
   // Track if video was playing before an external pause (for resume logic)
   const wasPlayingBeforePauseRef = useRef(false);
@@ -60,6 +65,22 @@ const VideoPlayer = forwardRef(function VideoPlayer({
 
   const src = `https://stream.mux.com/${playbackId}.m3u8`;
   const poster = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=0`;
+
+  // Preload poster image and fire onReady callback when it loads
+  // This ensures smooth transitions - poster is visible before video stream loads
+  useEffect(() => {
+    if (!onReadyCallbackRef.current) return;
+
+    const img = new window.Image();
+    img.onload = () => {
+      onReadyCallbackRef.current?.();
+    };
+    img.onerror = () => {
+      // Still fire ready on error so transition doesn't hang
+      onReadyCallbackRef.current?.();
+    };
+    img.src = poster;
+  }, [poster]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -374,8 +395,6 @@ const VideoPlayer = forwardRef(function VideoPlayer({
             width: "100%",
             height: "100%",
             display: "block",
-            opacity: isReady ? 1 : 0,
-            transition: "opacity 200ms ease-in",
             objectFit: isFullscreen ? "contain" : undefined,
           }}
         />

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import Link from "next/link";
 import { useHover } from "@/context/HoverContext";
 import { useProject } from "@/context/ProjectContext";
@@ -14,12 +15,55 @@ export default function SidebarClient({ artistName, projects }) {
   const hasActiveProject = !!activeSlug && galleryScrollOpacity > 0.5;
   const shouldMuteOthers = hasActiveHover || hasActiveProject;
 
+
   const handleProjectClick = (e, slug) => {
     e.preventDefault();
     selectProject(slug);
   };
 
+  // Track hover state for oscillation detection
+  // Oscillation = cursor sitting on boundary between two items, causing rapid mouseenter events
+  // We need to see A→B→A pattern (3 events) before blocking, not just A→B (2 events)
+  const hoverStateRef = useRef({
+    committedSlug: null,    // The slug we've actually committed to
+    lastEventTime: 0,       // Time of last hover event (any slug)
+    recentSlugs: [],        // Last few slugs to detect oscillation pattern
+  });
+
   const handleProjectMouseEnter = (slug) => {
+    const state = hoverStateRef.current;
+    const now = Date.now();
+    const timeSinceLast = now - state.lastEventTime;
+    state.lastEventTime = now;
+
+    // If slow movement (>100ms), reset tracking and allow
+    if (timeSinceLast >= 100) {
+      state.recentSlugs = [slug];
+      state.committedSlug = slug;
+      setSidebarHover(slug);
+      prefetchProject(slug);
+      return;
+    }
+
+    // Fast movement - track pattern
+    state.recentSlugs.push(slug);
+    // Keep only last 3 events
+    if (state.recentSlugs.length > 3) {
+      state.recentSlugs.shift();
+    }
+
+    // Check for oscillation: A→B→A pattern (same slug at position 0 and 2)
+    if (state.recentSlugs.length === 3) {
+      const [first, , third] = state.recentSlugs;
+      if (first === third && first !== slug) {
+        // We've seen A→B→A, now seeing another event
+        // If it's B again (A→B→A→B), that's oscillation - block it
+        return;
+      }
+    }
+
+    // Allow this hover
+    state.committedSlug = slug;
     setSidebarHover(slug);
     prefetchProject(slug);
   };
@@ -52,7 +96,7 @@ export default function SidebarClient({ artistName, projects }) {
             transition: "opacity 300ms"
           }}
         >projects</span>
-        <ul className="flex flex-col gap-0">
+        <ul className="flex flex-col gap-0" onMouseLeave={clearHover}>
           {projects.map((project) => {
             const projectSlug = project.slug.current;
             const isActive = activeSlug === projectSlug;
@@ -63,17 +107,16 @@ export default function SidebarClient({ artistName, projects }) {
             const shouldMute = shouldMuteOthers && !isHighlighted;
 
             return (
-              <li key={project._id}>
+              <li key={project._id} className="inline-block">
                 <a
                   href={`/?project=${projectSlug}`}
                   onClick={(e) => handleProjectClick(e, projectSlug)}
-                  className={isActive ? "text-black" : "text-muted hover:text-black"}
+                  onMouseEnter={() => handleProjectMouseEnter(projectSlug)}
+                  className={`inline-block ${isActive ? "text-black" : "text-muted hover:text-black"}`}
                   style={{
                     opacity: shouldMute ? 0.3 : 1,
-                    transition: "opacity 300ms"
+                    transition: "opacity 300ms",
                   }}
-                  onMouseEnter={() => handleProjectMouseEnter(projectSlug)}
-                  onMouseLeave={clearHover}
                 >
                   {project.title}
                 </a>

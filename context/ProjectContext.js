@@ -42,6 +42,9 @@ export function ProjectProvider({ children, projects }) {
   // Uses undefined to mean "no navigation in progress", null means "navigating to home"
   const navigationTargetRef = useRef(undefined);
 
+  // Track when scrolling to same project (used to skip scroll handlers and enable CSS transition)
+  const isSameProjectScrollingRef = useRef(false);
+
   // JS animation target - when set, PortfolioShell will animate padding via JS instead of CSS
   // { targetPadding: number, duration: number, onComplete: () => void } | null
   const [jsAnimationTarget, setJsAnimationTarget] = useState(null);
@@ -128,8 +131,18 @@ export function ProjectProvider({ children, projects }) {
 
   // Select a project: update URL, fetch data if needed, animate sequence
   const selectProject = useCallback(async (slug) => {
-    // If already viewing this project, do nothing
-    if (slug === activeSlug) return;
+    // If already viewing this project, scroll to gallery if not at top
+    if (slug === activeSlug) {
+      if (window.scrollY > 0) {
+        isSameProjectScrollingRef.current = true;
+        smoothScrollTo(0, 800, materialEase).then(() => {
+          isSameProjectScrollingRef.current = false;
+          // Dispatch scroll event to sync React state with final position
+          window.dispatchEvent(new Event('scroll'));
+        });
+      }
+      return;
+    }
 
     const wasFromLanding = !activeSlug;
     const isAtTop = window.scrollY === 0;
@@ -149,12 +162,12 @@ export function ProjectProvider({ children, projects }) {
       // Set navigation target BEFORE any state changes
       navigationTargetRef.current = slug;
 
-      setActiveSlug(slug);
-      setShowGallery(true);
-      setGalleryScrollOpacity(1);
-
       if (wasFromLanding) {
-        // FROM LANDING: Animate scroll and padding simultaneously to peek position
+        // FROM LANDING: Set project immediately, then animate
+        setActiveSlug(slug);
+        setShowGallery(true);
+        setGalleryScrollOpacity(1);
+
         // Start the grid animation phase (enables CSS transition on padding)
         setAnimationPhase('grid-animating');
 
@@ -172,14 +185,24 @@ export function ProjectProvider({ children, projects }) {
         setAnimationPhase('ready');
         router.push(`/?project=${slug}`, { scroll: false });
       } else {
-        // FROM PROJECT: already at peek padding, but may be scrolled down
-        // Animate scroll back to top while keeping padding at peek
+        // FROM PROJECT: switching between projects
+        // First fade out the current gallery (keep showing old project)
+        setAnimationPhase('gallery-fading-out');
+        await new Promise(r => setTimeout(r, 300)); // Wait for fade-out
+
+        // Now swap to new project
+        setActiveSlug(slug);
+        setShowGallery(true);
+        setGalleryScrollOpacity(1);
+
+        // Animate scroll back to top if needed
         if (!isAtTop) {
           setAnimationPhase('grid-animating');
           smoothScrollTo(0, 800, materialEase);
           await new Promise(r => setTimeout(r, 800));
         }
 
+        // Fade in the new gallery
         setAnimationPhase('gallery-fading-in');
         setIsSwitching(false);
         await new Promise(r => setTimeout(r, 300));
@@ -247,6 +270,7 @@ export function ProjectProvider({ children, projects }) {
         galleryScrollOpacity,
         setGalleryScrollOpacity,
         jsAnimationTarget,
+        isSameProjectScrollingRef,
         projects,
         projectCache,
         selectProject,

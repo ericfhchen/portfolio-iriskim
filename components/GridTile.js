@@ -12,7 +12,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
   const [isNearViewport, setIsNearViewport] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
 
-  const { hoveredProject, hoverSource, setTileHover, clearHover } = useHover();
+  const { hoveredProject, hoverSource, isHoverLocked, setTileHover, clearHover } = useHover();
 
   const projectSlug = project.slug.current;
   const isThisHovered = hoveredProject === projectSlug;
@@ -39,6 +39,9 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
   }, [videoSrc]);
 
   const handleMouseEnter = () => {
+    // Skip hover during "keep browsing" scroll animation
+    if (isHoverLocked) return;
+
     setIsHovering(true);
     setTileHover(projectSlug);
     onHover?.(project);
@@ -110,6 +113,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
         onClick={handleClick}
         className="block relative overflow-hidden"
         style={{ aspectRatio: aspectRatio }}
+        data-slug={project.slug.current}
       >
         {imageUrl && (
           <Image
