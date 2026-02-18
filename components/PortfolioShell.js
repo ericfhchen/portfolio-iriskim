@@ -2,12 +2,14 @@
 
 import { useRef, useEffect, useState } from "react";
 import MediaGallery from "./MediaGallery";
+import InformationPage from "./InformationPage";
 import ProjectGrid from "./ProjectGrid";
 import { useProject } from "@/context/ProjectContext";
 import { useHover } from "@/context/HoverContext";
 import { materialEase, cancellableScrollTo } from "@/lib/easing";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
-export default function PortfolioShell({ projects, initialProject }) {
+export default function PortfolioShell({ projects, initialProject, initialInformation, settings }) {
   const shellRef = useRef(null);
   const galleryRef = useRef(null);
   const gridRef = useRef(null);
@@ -16,6 +18,7 @@ export default function PortfolioShell({ projects, initialProject }) {
   const {
     activeSlug,
     activeProject,
+    isInformationActive,
     showGallery,
     isSwitching,
     animationPhase,
@@ -26,6 +29,7 @@ export default function PortfolioShell({ projects, initialProject }) {
     selectProject,
     prefetchProject,
     seedProject,
+    seedInformation,
   } = useProject();
 
   // Track the last displayed project for fade-out
@@ -55,6 +59,8 @@ export default function PortfolioShell({ projects, initialProject }) {
   const [buttonPhase, setButtonPhase] = useState('idle'); // 'idle' | 'fading-out' | 'fading-in'
   const wasOverlappingRef = useRef(false);
 
+  const isMobile = useIsMobile();
+
   // Get hover context for scroll handler registration and hover lock
   const { registerScrollHandler, unregisterScrollHandler, setIsHoverLocked } = useHover();
 
@@ -73,15 +79,20 @@ export default function PortfolioShell({ projects, initialProject }) {
   const lastHoverTimeRef = useRef(0);
   const currentScrollTargetRowRef = useRef(null); // Track which row we're scrolling to
 
-  // Seed the cache with SSR-fetched project on mount
+  // Seed the cache with SSR-fetched project on mount, or seed information page
   useEffect(() => {
     if (initialProject) {
       seedProject(initialProject);
+    } else if (initialInformation) {
+      // Direct URL load of /?information - skip animation, go straight to ready
+      seedInformation();
     }
-  }, [initialProject, seedProject]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Calculate top padding for landing view
-  // Shows first 2 rows with 3rd row peeking at the bottom of viewport
+  // Desktop: shows first 2 rows with 3rd row peeking at the bottom of viewport
+  // Mobile: shows first 4 rows with 5th row peeking at the bottom of viewport
   // IMPORTANT: Always calculate and store in ref, but only set state when at landing
   useEffect(() => {
     const calculatePadding = () => {
@@ -91,7 +102,11 @@ export default function PortfolioShell({ projects, initialProject }) {
       if (!rowContainer) return;
 
       const rowElements = Array.from(rowContainer.children);
-      if (rowElements.length < 3) {
+      const mobile = window.innerWidth <= 640;
+      const visibleRows = mobile ? 4 : 2;
+      const peekRowIndex = visibleRows; // 0-indexed: row after the visible ones
+
+      if (rowElements.length < peekRowIndex + 1) {
         setIsPaddingReady(true);
         return;
       }
@@ -99,15 +114,15 @@ export default function PortfolioShell({ projects, initialProject }) {
       const vh = window.innerHeight;
       const gap = 24; // gap-6
 
-      // Get first 2 rows and 3rd row for peek (from TOP of grid)
-      const firstRow = rowElements[0];
-      const secondRow = rowElements[1];
-      const thirdRow = rowElements[2];
-
-      // Height of content we want visible on load: 2 full rows + peek of 3rd
-      const top2Height = firstRow.offsetHeight + gap + secondRow.offsetHeight;
-      const peekAmount = thirdRow.offsetHeight * 0.08; // 8% peek to match project view
-      const visibleOnLoad = top2Height + gap + peekAmount;
+      // Sum height of all fully-visible rows + gaps between them
+      let topRowsHeight = 0;
+      for (let i = 0; i < visibleRows; i++) {
+        topRowsHeight += rowElements[i].offsetHeight;
+        if (i < visibleRows - 1) topRowsHeight += gap;
+      }
+      const peekRow = rowElements[peekRowIndex];
+      const peekAmount = peekRow.offsetHeight * 0.08; // 8% peek to match project view
+      const visibleOnLoad = topRowsHeight + gap + peekAmount;
 
       // Padding needed to push grid down so only this content fills the viewport
       // (viewport height - visible content - base padding)
@@ -130,8 +145,8 @@ export default function PortfolioShell({ projects, initialProject }) {
   }, [initialProject, showGallery]);
 
   // Calculate grid peek padding (used when project is selected)
-  // This positions the grid so 15% of first row peeks at bottom of viewport
-  // Key insight: Don't depend on gallery height - calculate based on viewport and row height only
+  // Positions grid so first row peeks at bottom of viewport (~35-40px visible)
+  // Mobile uses 25% of row height, desktop uses 15% (mobile rows are smaller)
   useEffect(() => {
     if (!gridRef.current) return;
 
@@ -140,7 +155,9 @@ export default function PortfolioShell({ projects, initialProject }) {
       const firstRow = rowContainer?.children[0];
       if (!firstRow) return;
 
-      const peek = firstRow.offsetHeight * 0.15; // 15% of first row visible
+      const isMobile = window.innerWidth <= 640;
+      const peekPercent = isMobile ? 0.25 : 0.15; // Mobile needs higher % for same visual peek (~35-40px)
+      const peek = firstRow.offsetHeight * peekPercent;
       setPeekAmount(peek);
       // Grid paddingTop = viewport height - peekAmount positions first row at bottom with 15% showing
       setGridPeekTop(window.innerHeight - peek);
@@ -420,6 +437,12 @@ export default function PortfolioShell({ projects, initialProject }) {
       return () => clearTimeout(timer);
     }
 
+    // Switching to information page: clear displayed project
+    if (isInformationActive && displayedProject) {
+      setDisplayedProject(null);
+      return;
+    }
+
     // Gallery fading in: update displayed project to new project
     // This happens AFTER gallery-fading-out completes in ProjectContext
     if (animationPhase === 'gallery-fading-in' && activeProject) {
@@ -431,12 +454,12 @@ export default function PortfolioShell({ projects, initialProject }) {
     if (showGallery && activeProject && !displayedProject && animationPhase !== 'gallery-fading-out') {
       setDisplayedProject(activeProject);
     }
-  }, [animationPhase, activeProject, showGallery, displayedProject]);
+  }, [animationPhase, activeProject, isInformationActive, showGallery, displayedProject]);
 
   // Gallery opacity fades based on grid overlap
   // Gallery is fixed, grid scrolls over it - fade as they overlap
   useEffect(() => {
-    if (!displayedProject || !gridRef.current) {
+    if ((!displayedProject && !isInformationActive) || !gridRef.current) {
       return;
     }
 
@@ -503,18 +526,18 @@ export default function PortfolioShell({ projects, initialProject }) {
     window.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll(); // Initial check
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [displayedProject, peekAmount, animationPhase, setGalleryScrollOpacity]);
+  }, [displayedProject, isInformationActive, peekAmount, animationPhase, setGalleryScrollOpacity]);
 
-  // Pause video when grid overlaps gallery, resume when overlap ends
+  // Pause video when grid overlaps gallery, resume when overlap ends (projects only)
   useEffect(() => {
-    if (animationPhase !== 'ready') return;
+    if (animationPhase !== 'ready' || isInformationActive) return;
 
     if (isGridOverlapping) {
       mediaGalleryRef.current?.pauseVideo();
     } else {
       mediaGalleryRef.current?.resumeVideo();
     }
-  }, [isGridOverlapping, animationPhase]);
+  }, [isGridOverlapping, animationPhase, isInformationActive]);
 
   // Handle manual scroll changing overlap state - animate button text
   useEffect(() => {
@@ -636,6 +659,9 @@ export default function PortfolioShell({ projects, initialProject }) {
       currentScrollTargetRowRef.current = null;
     };
 
+    // Skip hover scroll handlers on mobile - no hover states
+    if (isMobile) return;
+
     registerScrollHandler(handleSidebarHoverScroll, handleHoverClear);
 
     return () => {
@@ -653,12 +679,13 @@ export default function PortfolioShell({ projects, initialProject }) {
       // Reset row target
       currentScrollTargetRowRef.current = null;
     };
-  }, [animationPhase, isGridOverlapping, registerScrollHandler, unregisterScrollHandler]);
+  }, [animationPhase, isGridOverlapping, isMobile, registerScrollHandler, unregisterScrollHandler]);
 
   // Keep gallery container visible during transitions to prevent layout shift
   // Don't show during scrolling-to-peek from landing (prevents flash) - only show if switching projects
   const shouldShowGalleryContainer =
     displayedProject ||
+    isInformationActive ||
     (showGallery && (animationPhase !== 'scrolling-to-peek' || isSwitching));
 
   // Calculate gallery opacity based on animation phase
@@ -669,7 +696,9 @@ export default function PortfolioShell({ projects, initialProject }) {
     }
     // Fading in: keep at 0 until displayedProject matches activeProject
     // This prevents showing old project at full opacity before swap
+    // For information page, no displayedProject needed - just show at scroll opacity
     if (animationPhase === 'gallery-fading-in') {
+      if (isInformationActive) return galleryScrollOpacity;
       const projectsMatch = displayedProject?.slug?.current === activeProject?.slug?.current;
       return projectsMatch ? galleryScrollOpacity : 0;
     }
@@ -690,13 +719,13 @@ export default function PortfolioShell({ projects, initialProject }) {
 
   return (
     <div ref={shellRef}>
-      {/* Fixed "back to project" button - visible when grid overlaps gallery */}
-      {displayedProject && animationPhase === 'ready' && isGridOverlapping && (
+      {/* Fixed "back to project" button - visible when grid overlaps gallery (not for information page) */}
+      {displayedProject && !isInformationActive && animationPhase === 'ready' && isGridOverlapping && (
         <button
           onClick={handleBackToProjectClick}
           style={{
             position: 'fixed',
-            top: 8,
+            top: isMobile ? '0.5rem' : '1rem',
             right: 11,
             zIndex: 100,
             opacity: buttonPhase === 'idle' ? 1 : 0,
@@ -716,7 +745,7 @@ export default function PortfolioShell({ projects, initialProject }) {
           style={{
             position: 'fixed',
             top: 0,
-            left: 'calc(100% / 6)', // Sidebar width
+            left: isMobile ? 0 : 'calc(100% / 6)',
             right: 0,
             height: peekAmount ? `calc(100vh - ${peekAmount}px)` : '85vh',
             // When gallery is fading, drop z-index below grid so tiles receive clicks
@@ -728,7 +757,9 @@ export default function PortfolioShell({ projects, initialProject }) {
             overflow: 'hidden',
           }}
         >
-          {displayedProject && (
+          {isInformationActive ? (
+            <InformationPage settings={settings} />
+          ) : displayedProject ? (
             <MediaGallery
               ref={mediaGalleryRef}
               key={displayedProject.slug?.current}
@@ -736,14 +767,14 @@ export default function PortfolioShell({ projects, initialProject }) {
               allowAutoPlay={animationPhase === 'ready'}
               controlsDisabled={isGridOverlapping}
             />
-          )}
+          ) : null}
         </div>
       )}
 
       {/* Grid scrolls over the fixed gallery */}
       <div
         ref={gridRef}
-        className="p-4"
+        className="p-2 sm:p-4"
         style={{
           position: 'relative',
           zIndex: 2,
@@ -798,7 +829,7 @@ export default function PortfolioShell({ projects, initialProject }) {
       >
         <div style={{ position: 'relative' }}>
           {/* Keep browsing button - visible at peek position (not overlapping) */}
-          {displayedProject && animationPhase === 'ready' && !isGridOverlapping && (
+          {(displayedProject || isInformationActive) && animationPhase === 'ready' && !isGridOverlapping && (
             <button
               onClick={handleKeepBrowsingClick}
               style={{

@@ -1,11 +1,23 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { buildGridRows } from "@/lib/gridLayout";
 import GridTile from "./GridTile";
 
 export default function ProjectGrid({ projects, onProjectClick, onProjectHover }) {
-  const rows = useMemo(() => buildGridRows(projects), [projects]);
+  const [windowWidth, setWindowWidth] = useState(0);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const rows = useMemo(
+    () => buildGridRows(projects, windowWidth || 1400),
+    [projects, windowWidth]
+  );
 
   return (
     <div className="w-full flex flex-col gap-6">

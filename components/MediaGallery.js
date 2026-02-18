@@ -4,9 +4,11 @@ import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHand
 import Image from "next/image";
 import { urlFor } from "@/sanity/lib/image";
 import VideoPlayer from "./VideoPlayer";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 const SCROLL_SPEED = 250; // pixels per second
 const HOVER_ZONE_WIDTH = 70; // px - matches gradient width
+const MOBILE_GRADIENT_WIDTH = 30; // px - narrower on mobile
 
 // Render Portable Text blocks as inline text
 function renderCaptionInline(caption) {
@@ -29,6 +31,7 @@ function renderCaptionInline(caption) {
 const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay = true, controlsDisabled = false }, ref) {
   const media = project?.media || [];
   const [activeIndex, setActiveIndex] = useState(0);
+  const isMobile = useIsMobile();
   // Note: Parent uses key={slug} so component remounts on project change - no manual reset needed
 
   // Dual-layer crossfade system
@@ -94,17 +97,13 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   // Handle layer ready (image loaded or video ready)
   // Old layer already faded out in startTransition, just fade in new layer
   const handleLayerReady = useCallback((layerId) => {
-    console.log(`[MediaGallery] Layer ready:`, layerId);
-
     // Fade in the new layer
     setLayers(prev => {
       const newLayer = prev.find(l => l.id === layerId);
       if (!newLayer || newLayer.zIndex !== 1) {
-        console.log(`[MediaGallery] Layer ${layerId} not found or not z-index 1, skipping`);
         return prev;
       }
 
-      console.log(`[MediaGallery] Fading in new layer ${layerId}`);
       return prev.map(l =>
         l.id === layerId ? { ...l, opacity: 1 } : l
       );
@@ -112,7 +111,6 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
 
     // After fade in completes, clean up old layer
     setTimeout(() => {
-      console.log(`[MediaGallery] Cleanup, removing old layer`);
       setLayers(prev => {
         const topLayer = prev.find(l => l.zIndex === 1);
         if (!topLayer) return prev;
@@ -130,9 +128,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     transitioningRef.current = true;
     const newLayerId = layerIdRef.current++;
 
-    const fromItem = media[activeIndex];
     const toItem = media[targetIndex];
-    console.log(`[MediaGallery] Starting transition: ${fromItem?._type} (index ${activeIndex}) → ${toItem?._type} (index ${targetIndex}), new layer ${newLayerId}`);
 
     // Add new layer on top with opacity 0, and immediately fade out old layer
     setLayers(prev => [
@@ -181,7 +177,6 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   if (!project || media.length === 0) return null;
 
   const handleThumbnailClick = (index) => {
-    console.log(`[MediaGallery] Thumbnail clicked`, { index, activeIndex, transitioning: transitioningRef.current });
     // Prevent clicks during transition or if already on this index
     if (index === activeIndex || transitioningRef.current) return;
     startTransition(index);
@@ -204,14 +199,6 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     if (!el) return;
     const newCanScrollLeft = el.scrollLeft > 1;
     const newCanScrollRight = el.scrollLeft < el.scrollWidth - el.clientWidth - 1;
-    console.log('[Scroll] updateScrollState:', {
-      scrollLeft: el.scrollLeft,
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth,
-      maxScroll: el.scrollWidth - el.clientWidth,
-      canScrollLeft: newCanScrollLeft,
-      canScrollRight: newCanScrollRight,
-    });
     setCanScrollLeft(newCanScrollLeft);
     setCanScrollRight(newCanScrollRight);
   }, []);
@@ -244,9 +231,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   }, [updateScrollState]);
 
   const startAutoScroll = useCallback((direction) => {
-    console.log('[Scroll] startAutoScroll:', direction);
     let lastTime = performance.now();
-    let frameCount = 0;
 
     const animate = (currentTime) => {
       const deltaTime = (currentTime - lastTime) / 1000;
@@ -254,7 +239,6 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
 
       const el = scrollContainerRef.current;
       if (!el) {
-        console.log('[Scroll] animate: no element, stopping');
         return;
       }
 
@@ -265,31 +249,13 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
         : el.scrollLeft < maxScroll - 1;
 
       if (!canScrollInDirection) {
-        console.log('[Scroll] animate: reached boundary, stopping', {
-          direction,
-          scrollLeft: el.scrollLeft,
-          maxScroll,
-        });
         scrollAnimationRef.current = null;
         updateScrollState();
         return;
       }
 
-      const beforeScroll = el.scrollLeft;
       const delta = SCROLL_SPEED * deltaTime * (direction === 'left' ? -1 : 1);
       el.scrollLeft += delta;
-      const afterScroll = el.scrollLeft;
-
-      frameCount++;
-      if (frameCount % 30 === 0) { // Log every 30 frames (~0.5s)
-        console.log('[Scroll] animate frame:', {
-          direction,
-          delta,
-          beforeScroll,
-          afterScroll,
-          actualDelta: afterScroll - beforeScroll,
-        });
-      }
 
       updateScrollState();
       scrollAnimationRef.current = requestAnimationFrame(animate);
@@ -299,7 +265,6 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   }, [updateScrollState]);
 
   const stopAutoScroll = useCallback(() => {
-    console.log('[Scroll] stopAutoScroll called, had animation:', !!scrollAnimationRef.current);
     if (scrollAnimationRef.current) {
       cancelAnimationFrame(scrollAnimationRef.current);
       scrollAnimationRef.current = null;
@@ -315,19 +280,25 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     };
   }, []);
 
-  return (
-    <div className="w-full p-4">
-      <div className="mb-2">
-        <span>
-          {project.title}. {project.year}.
-          {renderCaptionInline(project.caption) && ` ${renderCaptionInline(project.caption)}`}
-        </span>
-      </div>
+  // Credits component - reused in different positions for mobile/desktop
+  const creditsContent = (
+    <div className={isMobile ? "mt-2 mb-1" : "mb-2"}>
+      <span>
+        {project.title}. {project.year}.
+        {renderCaptionInline(project.caption) && ` ${renderCaptionInline(project.caption)}`}
+      </span>
+    </div>
+  );
 
-      {/* Main display area with dual-layer crossfade */}
+  return (
+    <div className={`w-full h-full flex flex-col ${isMobile ? 'p-2 pt-8 pb-32' : 'p-4'}`}>
+      {/* Credits at top on desktop */}
+      {!isMobile && creditsContent}
+
+      {/* Main display area with dual-layer crossfade - flex-1 to fill available space */}
       <div
-        className="relative w-full"
-        style={{ height: "73vh" }}
+        className={`relative w-full ${isMobile ? 'flex-1 min-h-0' : ''}`}
+        style={isMobile ? {} : { height: "73vh" }}
       >
         {layers.map((layer) => {
           const item = media[layer.index];
@@ -366,7 +337,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                     src={urlFor(item).width(1400).quality(90).url()}
                     alt={project.title}
                     fill
-                    className="object-contain object-left"
+                    className={`object-contain ${isMobile ? 'object-center' : 'object-left'}`}
                     onLoad={
                       layer.zIndex === 1
                         ? () => handleLayerReady(layer.id)
@@ -379,6 +350,9 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
           );
         })}
       </div>
+
+      {/* Credits above thumbnails on mobile */}
+      {isMobile && creditsContent}
 
       {/* Thumbnail row with horizontal scroll */}
       {media.length > 1 && (
@@ -464,7 +438,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: HOVER_ZONE_WIDTH,
+                width: isMobile ? MOBILE_GRADIENT_WIDTH : HOVER_ZONE_WIDTH,
                 background: 'linear-gradient(to right, white, transparent)',
                 pointerEvents: 'none',
                 zIndex: 2,
@@ -480,7 +454,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                 right: 0,
                 top: 0,
                 bottom: 0,
-                width: HOVER_ZONE_WIDTH,
+                width: isMobile ? MOBILE_GRADIENT_WIDTH : HOVER_ZONE_WIDTH,
                 background: 'linear-gradient(to left, white, transparent)',
                 pointerEvents: 'none',
                 zIndex: 2,
@@ -488,17 +462,11 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
             />
           )}
 
-          {/* Left hover zone for auto-scroll */}
-          {canScrollLeft && (
+          {/* Left hover zone for auto-scroll - desktop only */}
+          {!isMobile && canScrollLeft && (
             <div
-              onMouseEnter={() => {
-                console.log('[Scroll] LEFT zone mouseEnter');
-                startAutoScroll('left');
-              }}
-              onMouseLeave={() => {
-                console.log('[Scroll] LEFT zone mouseLeave');
-                stopAutoScroll();
-              }}
+              onMouseEnter={() => startAutoScroll('left')}
+              onMouseLeave={stopAutoScroll}
               style={{
                 position: 'absolute',
                 left: 0,
@@ -511,17 +479,11 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
             />
           )}
 
-          {/* Right hover zone for auto-scroll */}
-          {canScrollRight && (
+          {/* Right hover zone for auto-scroll - desktop only */}
+          {!isMobile && canScrollRight && (
             <div
-              onMouseEnter={() => {
-                console.log('[Scroll] RIGHT zone mouseEnter');
-                startAutoScroll('right');
-              }}
-              onMouseLeave={() => {
-                console.log('[Scroll] RIGHT zone mouseLeave');
-                stopAutoScroll();
-              }}
+              onMouseEnter={() => startAutoScroll('right')}
+              onMouseLeave={stopAutoScroll}
               style={{
                 position: 'absolute',
                 right: 0,

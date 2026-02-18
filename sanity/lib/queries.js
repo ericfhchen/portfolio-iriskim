@@ -35,6 +35,16 @@ export const projectDetailQuery = `*[_type == "project" && slug.current == $slug
 }`;
 
 export const siteSettingsQuery = `*[_type == "siteSettings"][0] {
-  artistName,
-  siteTitle
+  name,
+  bio,
+  contactLinks,
+  informationImage {
+    asset-> {
+      url,
+      metadata {
+        dimensions
+      }
+    },
+    hotspot
+  }
 }`;

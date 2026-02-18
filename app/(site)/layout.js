@@ -12,7 +12,8 @@ export default async function SiteLayout({ children }) {
 
   return (
     <SiteLayoutClient
-      artistName={settings?.artistName || "iris kim"}
+      artistName={settings?.name || "iris kim"}
+      settings={settings || {}}
       projects={projects || []}
     >
       {children}

@@ -54,8 +54,14 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   const [duration, setDuration] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [isMobileView, setIsMobileView] = useState(false);
   const hideControlsTimeout = useRef(null);
   const hlsRef = useRef(null);
+
+  // Track mobile status for layout
+  useEffect(() => {
+    setIsMobileView(isMobile());
+  }, []);
 
   // Parse Mux aspect ratio string (e.g., "16:9") to number
   const parsedAspectRatio = aspectRatio
@@ -368,8 +374,9 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       ref={containerRef}
       style={{
         display: "flex",
-        alignItems: isFullscreen ? "center" : "flex-start",
+        alignItems: isFullscreen || isMobileView ? "center" : "flex-start",
         justifyContent: isFullscreen ? "center" : "flex-start",
+        height: "100%",
         ...(isFullscreen && { width: "100%", height: "100%", background: "#000" }),
       }}
       onMouseMove={resetHideTimer}

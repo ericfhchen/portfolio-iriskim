@@ -1,12 +1,17 @@
 import { freshClient } from "@/sanity/lib/client";
-import { allProjectsQuery, projectDetailQuery } from "@/sanity/lib/queries";
+import { allProjectsQuery, projectDetailQuery, siteSettingsQuery } from "@/sanity/lib/queries";
 import PortfolioShell from "@/components/PortfolioShell";
 
 export default async function HomePage({ searchParams }) {
-  const { project: projectSlug } = await searchParams;
+  const params = await searchParams;
+  const projectSlug = params.project;
+  const showInformation = "information" in params;
 
   // Use freshClient to bypass CDN cache - ensures new uploads appear immediately
-  const projects = await freshClient.fetch(allProjectsQuery);
+  const [projects, settings] = await Promise.all([
+    freshClient.fetch(allProjectsQuery),
+    freshClient.fetch(siteSettingsQuery),
+  ]);
 
   let initialProject = null;
   if (projectSlug) {
@@ -17,6 +22,8 @@ export default async function HomePage({ searchParams }) {
     <PortfolioShell
       projects={projects || []}
       initialProject={initialProject}
+      initialInformation={showInformation}
+      settings={settings || {}}
     />
   );
 }

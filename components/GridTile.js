@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { urlFor } from "@/sanity/lib/image";
 import { useHover } from "@/context/HoverContext";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 export default function GridTile({ project, widthPercent, aspectRatio, onClick, onHover }) {
   const videoRef = useRef(null);
@@ -13,6 +14,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
   const [isHovering, setIsHovering] = useState(false);
 
   const { hoveredProject, hoverSource, isHoverLocked, setTileHover, clearHover } = useHover();
+  const isMobile = useIsMobile();
 
   const projectSlug = project.slug.current;
   const isThisHovered = hoveredProject === projectSlug;
@@ -39,6 +41,8 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
   }, [videoSrc]);
 
   const handleMouseEnter = () => {
+    // Skip hover on mobile - first tap navigates directly
+    if (isMobile) return;
     // Skip hover during "keep browsing" scroll animation
     if (isHoverLocked) return;
 

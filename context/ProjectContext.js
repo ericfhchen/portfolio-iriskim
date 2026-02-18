@@ -83,14 +83,26 @@ export function ProjectProvider({ children, projects }) {
     }
   }, []);
 
+  // Seed information page on direct URL load (skip animation, go straight to ready)
+  const seedInformation = useCallback(() => {
+    setActiveSlug("information");
+    setShowGallery(true);
+    setAnimationPhase('ready');
+  }, []);
+
   // Sync with URL search params (for browser back/forward)
   // Skip sync when we have a pending navigation target (we control the state, not the URL)
   useEffect(() => {
     const urlSlug = searchParams.get("project");
+    const urlInformation = searchParams.has("information");
+
+    // Determine the effective "slug" for state comparison
+    // "information" is a special slug that doesn't need project data
+    const effectiveSlug = urlInformation ? "information" : urlSlug;
 
     // If we're navigating programmatically, only accept URL changes that match our target
     if (navigationTargetRef.current !== undefined) {
-      if (urlSlug === navigationTargetRef.current) {
+      if (effectiveSlug === navigationTargetRef.current) {
         // URL caught up to our target, clear the ref
         navigationTargetRef.current = undefined;
       } else {
@@ -99,8 +111,12 @@ export function ProjectProvider({ children, projects }) {
       }
     }
 
-    if (urlSlug !== activeSlug) {
-      if (urlSlug) {
+    if (effectiveSlug !== activeSlug) {
+      if (urlInformation) {
+        // URL has ?information - show information page (no project data needed)
+        setActiveSlug("information");
+        setShowGallery(true);
+      } else if (urlSlug) {
         // URL has a project, make sure we have data
         if (cacheRef.current[urlSlug]) {
           setActiveSlug(urlSlug);
@@ -129,9 +145,9 @@ export function ProjectProvider({ children, projects }) {
     }
   }, [fetchProject]);
 
-  // Select a project: update URL, fetch data if needed, animate sequence
+  // Select a project or "information": update URL, fetch data if needed, animate sequence
   const selectProject = useCallback(async (slug) => {
-    // If already viewing this project, scroll to gallery if not at top
+    // If already viewing this project/information, scroll to gallery if not at top
     if (slug === activeSlug) {
       if (window.scrollY > 0) {
         isSameProjectScrollingRef.current = true;
@@ -150,6 +166,7 @@ export function ProjectProvider({ children, projects }) {
       return;
     }
 
+    const isInformation = slug === "information";
     const wasFromLanding = !activeSlug;
     const isAtTop = window.scrollY === 0;
 
@@ -158,18 +175,25 @@ export function ProjectProvider({ children, projects }) {
       setIsSwitching(true);
     }
 
-    // Prefetch should have already cached it, but fetch if not
-    let project = cacheRef.current[slug];
-    if (!project) {
-      project = await fetchProject(slug);
+    // For information, no project data fetch needed
+    // For projects, prefetch should have already cached it
+    let project = null;
+    if (!isInformation) {
+      project = cacheRef.current[slug];
+      if (!project) {
+        project = await fetchProject(slug);
+      }
     }
 
-    if (project) {
+    // Proceed if it's information (always) or if project data loaded
+    if (isInformation || project) {
       // Set navigation target BEFORE any state changes
       navigationTargetRef.current = slug;
 
+      const targetUrl = isInformation ? `/?information` : `/?project=${slug}`;
+
       if (wasFromLanding) {
-        // FROM LANDING: Set project immediately, then animate
+        // FROM LANDING: Set active immediately, then animate
         setActiveSlug(slug);
         setShowGallery(true);
         setGalleryScrollOpacity(1);
@@ -189,14 +213,14 @@ export function ProjectProvider({ children, projects }) {
         await new Promise(r => setTimeout(r, 300));
 
         setAnimationPhase('ready');
-        router.push(`/?project=${slug}`, { scroll: false });
+        router.push(targetUrl, { scroll: false });
       } else {
-        // FROM PROJECT: switching between projects
-        // First fade out the current gallery (keep showing old project)
+        // FROM PROJECT/INFORMATION: switching between views
+        // First fade out the current gallery (keep showing old content)
         setAnimationPhase('gallery-fading-out');
         await new Promise(r => setTimeout(r, 300)); // Wait for fade-out
 
-        // Now swap to new project
+        // Now swap to new view
         setActiveSlug(slug);
         setShowGallery(true);
         setGalleryScrollOpacity(1);
@@ -214,7 +238,7 @@ export function ProjectProvider({ children, projects }) {
         await new Promise(r => setTimeout(r, 300));
 
         setAnimationPhase('ready');
-        router.push(`/?project=${slug}`, { scroll: false });
+        router.push(targetUrl, { scroll: false });
       }
     }
   }, [fetchProject, router, activeSlug, animationPhase]);
@@ -271,14 +295,18 @@ export function ProjectProvider({ children, projects }) {
     router.push("/", { scroll: false });
   }, [router, activeSlug, animationPhase]);
 
-  // Get the active project data
-  const activeProject = activeSlug ? projectCache[activeSlug] : null;
+  // Get the active project data (null for information page)
+  const activeProject = (activeSlug && activeSlug !== "information") ? projectCache[activeSlug] : null;
+
+  // Whether the information page is active
+  const isInformationActive = activeSlug === "information";
 
   return (
     <ProjectContext.Provider
       value={{
         activeSlug,
         activeProject,
+        isInformationActive,
         showGallery,
         isSwitching,
         animationPhase,
@@ -292,6 +320,7 @@ export function ProjectProvider({ children, projects }) {
         prefetchProject,
         closeProject,
         seedProject,
+        seedInformation,
       }}
     >
       {children}
