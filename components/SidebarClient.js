@@ -118,6 +118,7 @@ export default function SidebarClient({ artistName, projects }) {
             style={{
               opacity: shouldMuteInformation ? 0.3 : 1,
               transition: "opacity 300ms",
+              cursor: "pointer",
             }}
           >
             information
@@ -161,6 +162,7 @@ export default function SidebarClient({ artistName, projects }) {
                 style={{
                   opacity: shouldMuteInformation ? 0.3 : 1,
                   transition: "opacity 300ms",
+                  cursor: "pointer",
                 }}
               >
                 information
@@ -214,10 +216,11 @@ export default function SidebarClient({ artistName, projects }) {
         </Link>
         <button
           onClick={handleInformationClick}
-          className={isInformationActive ? "text-black" : "text-muted hover:text-black"}
+          className="text-black"
           style={{
             opacity: shouldMuteInformation ? 0.3 : 1,
             transition: "opacity 300ms",
+            cursor: "pointer",
           }}
         >
           information

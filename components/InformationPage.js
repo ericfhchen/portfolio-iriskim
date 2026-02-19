@@ -1,10 +1,110 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { PortableText } from "@portabletext/react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
+const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
+
+function EmailBlock({ email }) {
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(email);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <span
+      style={{ display: "inline-flex", alignItems: "center", gap: "0.4em", cursor: "pointer" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={handleCopy}
+    >
+      <span style={{ opacity: hovered ? 0.3 : 1, transition: "opacity 200ms" }}>
+        {email}
+      </span>
+      <span
+        style={{
+          opacity: !hovered && !copied ? 0 : copied ? 0.25 : 0.4,
+          transition: "opacity 200ms",
+          fontSize: "0.85em",
+        }}
+      >
+        {copied ? "copied" : "copy"}
+      </span>
+    </span>
+  );
+}
+
+function renderTextWithEmails(text) {
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+  const re = new RegExp(EMAIL_RE.source, "g");
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<EmailBlock key={match.index} email={match[0]} />);
+    lastIndex = re.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts.length > 0 ? parts : text;
+}
+
 const portableTextComponents = {
+  block: {
+    normal: ({ value, children }) => {
+      const text = value.children?.map((c) => c.text || "").join("").trim();
+      if (!text) return <br />;
+      // Check if any plain span contains an email — if not, use default rendering
+      const hasEmail = value.children?.some(
+        (c) => c._type === "span" && !c.marks?.length && EMAIL_RE.test(c.text || "")
+      );
+      // Reset regex lastIndex since it's global
+      EMAIL_RE.lastIndex = 0;
+      if (!hasEmail) return <p>{children}</p>;
+      // Re-render children manually so we can split plain spans on emails
+      // Marked spans are wrapped in their mark tags; plain spans get email scanning
+      const rendered = value.children?.map((child, i) => {
+        if (child._type !== "span") return null;
+        if (!child.marks?.length) {
+          return <span key={i}>{renderTextWithEmails(child.text || "")}</span>;
+        }
+        // Apply marks manually (link, strong, em)
+        let content = <>{child.text}</>;
+        for (const mark of [...child.marks].reverse()) {
+          if (mark === "strong") content = <strong>{content}</strong>;
+          else if (mark === "em") content = <em>{content}</em>;
+          // link marks are objects on value.markDefs — look up by _key
+          else {
+            const def = value.markDefs?.find((d) => d._key === mark);
+            if (def?._type === "link") {
+              content = (
+                <a
+                  href={def.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:opacity-60"
+                  style={{ transition: "opacity 200ms" }}
+                >
+                  {content}
+                </a>
+              );
+            }
+          }
+        }
+        return <span key={i}>{content}</span>;
+      });
+      return <p>{rendered}</p>;
+    },
+  },
   marks: {
     link: ({ children, value }) => (
       <a
@@ -63,19 +163,19 @@ export default function InformationPage({ settings }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: isMobile ? "3fr 2fr" : "3fr 2fr",
-          gap: isMobile ? "1.5rem" : "3rem",
+          gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 2fr",
+          gap: isMobile ? "1rem" : "3rem",
         }}
       >
         {/* Bio column (wider) */}
-        <div className="text-muted leading-relaxed">
+        <div className="">
           {bio ? (
             <PortableText value={bio} components={portableTextComponents} />
           ) : null}
         </div>
 
         {/* Contact & Links column (narrower) */}
-        <div className="text-muted leading-relaxed">
+        <div className="">
           {contactLinks ? (
             <PortableText value={contactLinks} components={portableTextComponents} />
           ) : null}
