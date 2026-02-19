@@ -83,6 +83,23 @@ export function ProjectProvider({ children, projects }) {
     }
   }, []);
 
+  // Seed the cache with multiple projects at once (called from PortfolioShell with SSR data)
+  // Only warms the cache - does NOT set activeSlug or showGallery
+  const seedProjects = useCallback((projectsList) => {
+    if (!projectsList || projectsList.length === 0) return;
+    setProjectCache((prev) => {
+      const updates = {};
+      for (const project of projectsList) {
+        const slug = project.slug?.current;
+        if (slug && !prev[slug]) {
+          updates[slug] = project;
+        }
+      }
+      if (Object.keys(updates).length === 0) return prev;
+      return { ...prev, ...updates };
+    });
+  }, []);
+
   // Seed information page on direct URL load (skip animation, go straight to ready)
   const seedInformation = useCallback(() => {
     setActiveSlug("information");
@@ -320,6 +337,7 @@ export function ProjectProvider({ children, projects }) {
         prefetchProject,
         closeProject,
         seedProject,
+        seedProjects,
         seedInformation,
       }}
     >

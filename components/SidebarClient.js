@@ -27,24 +27,20 @@ export default function SidebarClient({ artistName, projects }) {
   const shouldMuteOthers = hasActiveHover || hasActiveProject;
 
   // Information is highlighted (not muted) when it's active; muted otherwise when something else is active
-  const shouldMuteInformation = shouldMuteOthers && !isInformationActive;
+  const shouldMuteInformation = !isMobile && shouldMuteOthers && !isInformationActive;
   // Projects section is muted when information is active or hover/project is active
   const shouldMuteProjectsSection = shouldMuteOthers;
 
 
   const handleInformationClick = (e) => {
     e.preventDefault();
-    if (isMobile) {
-      setOverlayOpen(false);
-    }
+    setOverlayOpen(false);
     selectProject("information");
   };
 
   const handleProjectClick = (e, slug) => {
     e.preventDefault();
-    if (isMobile) {
-      setOverlayOpen(false);
-    }
+    setOverlayOpen(false);
     selectProject(slug);
   };
 
@@ -98,11 +94,11 @@ export default function SidebarClient({ artistName, projects }) {
     prefetchProject(slug);
   };
 
-  // Mobile header with projects overlay
   if (isMobile) {
     return (
       <>
-        <header className="fixed top-0 left-0 right-0 z-40 p-2 flex flex-row items-center gap-6">
+        {/* Mobile header */}
+        <header className="flex fixed top-0 left-0 right-0 z-40 p-2 flex-row items-center gap-6">
           <Link
             href="/"
             onClick={(e) => {
@@ -131,9 +127,9 @@ export default function SidebarClient({ artistName, projects }) {
           </button>
         </header>
 
-        {/* Projects overlay */}
+        {/* Mobile overlay */}
         <div
-          className="fixed inset-0 z-[110] flex flex-col"
+          className="flex fixed inset-0 z-[110] flex-col"
           onClick={() => setOverlayOpen(false)}
           style={{
             backgroundColor: "rgba(255, 255, 255, 0.9)",
@@ -142,68 +138,66 @@ export default function SidebarClient({ artistName, projects }) {
             transition: "opacity 200ms ease-out",
           }}
         >
-            {/* Header row inside overlay */}
-            <div className="p-2 flex flex-row items-center gap-6" onClick={(e) => e.stopPropagation()}>
-              <Link
-                href="/"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setOverlayOpen(false);
-                  closeProject();
-                }}
-              >
-                {artistName}
-              </Link>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleInformationClick(e);
-                }}
-                style={{
-                  opacity: shouldMuteInformation ? 0.3 : 1,
-                  transition: "opacity 300ms",
-                  cursor: "pointer",
-                }}
-              >
-                information
-              </button>
-              <button
-                ref={projectsButtonRef}
-                onClick={() => setOverlayOpen(false)}
-                className="text-black"
-              >
-                projects <span className="">(close)</span>
-              </button>
-            </div>
-
-            {/* Projects list - aligned with projects button */}
-            <ul className="flex flex-col gap-0" style={{ paddingLeft: projectsButtonLeft }} onClick={(e) => e.stopPropagation()}>
-              {projects.map((project) => {
-                const projectSlug = project.slug.current;
-                const isActive = activeSlug === projectSlug;
-
-                return (
-                  <li key={project._id}>
-                    <a
-                      href={`/?project=${projectSlug}`}
-                      onClick={(e) => handleProjectClick(e, projectSlug)}
-                      className={isActive ? "text-black" : "text-muted"}
-                    >
-                      {project.title}
-                    </a>
-                  </li>
-                );
-              })}
-            </ul>
+          {/* Header row inside overlay */}
+          <div className="p-2 flex flex-row items-center gap-6" onClick={(e) => e.stopPropagation()}>
+            <Link
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                setOverlayOpen(false);
+                closeProject();
+              }}
+            >
+              {artistName}
+            </Link>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleInformationClick(e);
+              }}
+              style={{
+                opacity: shouldMuteInformation ? 0.3 : 1,
+                transition: "opacity 300ms",
+                cursor: "pointer",
+              }}
+            >
+              information
+            </button>
+            <button
+              ref={projectsButtonRef}
+              onClick={() => setOverlayOpen(false)}
+              className="text-black"
+            >
+              projects <span className="">(close)</span>
+            </button>
           </div>
+
+          {/* Projects list - aligned with projects button */}
+          <ul className="flex flex-col gap-0" style={{ paddingLeft: projectsButtonLeft }}>
+            {projects.map((project) => {
+              const projectSlug = project.slug.current;
+              const isActive = activeSlug === projectSlug;
+
+              return (
+                <li key={project._id}>
+                  <a
+                    href={`/?project=${projectSlug}`}
+                    onClick={(e) => handleProjectClick(e, projectSlug)}
+                    className={isActive ? "text-black" : "text-muted"}
+                  >
+                    {project.title}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </>
     );
   }
 
-  // Desktop sidebar
   return (
-    <nav className="fixed top-0 left-0 h-screen w-1/6 p-4 pr-0 flex flex-col gap-8 overflow-y-auto">
-
+    <nav className="flex fixed top-0 left-0 h-screen w-1/6 p-4 pr-0 flex-col gap-8 overflow-y-auto">
       <div className="flex flex-row gap-8">
         <Link
           href="/"
@@ -238,8 +232,6 @@ export default function SidebarClient({ artistName, projects }) {
             const projectSlug = project.slug.current;
             const isActive = activeSlug === projectSlug;
             const isHovered = hoveredProject === projectSlug;
-            // Mute if there's an active hover/selection and this isn't the highlighted project
-            // When hovering, use hover state; otherwise use active state
             const isHighlighted = hasActiveHover ? isHovered : isActive;
             const shouldMute = shouldMuteOthers && !isHighlighted;
 

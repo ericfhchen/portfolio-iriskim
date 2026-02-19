@@ -69,6 +69,10 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     resumeVideo: () => {
       videoPlayerRef.current?.resume();
     },
+    getThumbnailBottom: () => {
+      if (!scrollContainerRef.current) return null;
+      return scrollContainerRef.current.getBoundingClientRect().bottom;
+    },
   }), []);
 
   // Fade in initial layer on mount - wait for thumbnails and initial media
@@ -369,6 +373,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
             className="flex items-start gap-1 thumbnail-scroll-container"
             style={{
               overflowX: 'auto',
+              overflowY: 'hidden',
               scrollbarWidth: 'none',
               msOverflowStyle: 'none',
               WebkitOverflowScrolling: 'touch',

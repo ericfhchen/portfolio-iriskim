@@ -183,3 +183,12 @@ Currently desktop-only with fixed `w-1/6` sidebar and hardcoded 1400px grid. Nee
 
 ### 7. Hide "Back to Project" for Information
 - [x] Only show "back to project" when `activeSlug && activeSlug !== "information"`
+
+### 8. InformationPage Enhancements
+**File:** `components/InformationPage.js`
+- [x] Email detection in PortableText: scan plain spans for emails using regex, wrap in `EmailBlock`
+- [x] `EmailBlock`: hover fades email text + fades in muted "copy" label; click copies to clipboard + shows "copied" for 2s
+- [x] Emails detected inline within paragraphs (not just whole-paragraph emails)
+- [x] Empty paragraphs render as `<br />` for double line-break support
+- [x] Mobile layout: single column (stacked), desktop: 3-column grid
+- [x] `information` sidebar link: always full opacity (unmuted), `cursor: pointer`

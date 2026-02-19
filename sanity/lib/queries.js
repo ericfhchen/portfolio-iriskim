@@ -4,10 +4,25 @@ export const allProjectsQuery = `*[_type == "project"] | order(orderRank asc) {
   slug,
   year,
   role,
+  caption,
   tileSize,
+  projectCode,
   coverImage,
   "coverAspectRatio": coverImage.asset->metadata.dimensions.aspectRatio,
-  "muxPlaybackId": media[_type == "mux.video"][0].asset->playbackId
+  "muxPlaybackId": media[_type == "mux.video"][0].asset->playbackId,
+  media[] {
+    _type,
+    _key,
+    ...,
+    _type == "image" => {
+      "aspectRatio": asset->metadata.dimensions.aspectRatio,
+      asset
+    },
+    _type == "mux.video" => {
+      "playbackId": asset->playbackId,
+      "aspectRatio": asset->data.aspect_ratio
+    }
+  }
 }`;
 
 export const projectDetailQuery = `*[_type == "project" && slug.current == $slug][0] {

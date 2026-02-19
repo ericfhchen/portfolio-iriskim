@@ -29,6 +29,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     selectProject,
     prefetchProject,
     seedProject,
+    seedProjects,
     seedInformation,
   } = useProject();
 
@@ -81,6 +82,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
 
   // Seed the cache with SSR-fetched project on mount, or seed information page
   useEffect(() => {
+    seedProjects(projects);        // warm cache with all SSR project data
     if (initialProject) {
       seedProject(initialProject);
     } else if (initialInformation) {
@@ -485,7 +487,19 @@ export default function PortfolioShell({ projects, initialProject, initialInform
       const galleryBottom = window.innerHeight - effectivePeek;
 
       const fadeEndY = window.innerHeight * 0.5; // Fully faded at 50% viewport
-      const fadeStartY = galleryBottom * 0.9; // Start fading at 15% overlap
+
+      // Surgical threshold: fade starts exactly when grid reaches bottom of thumbnail row
+      const thumbnailBottom = mediaGalleryRef.current?.getThumbnailBottom?.() ?? null;
+      const fadeStartY = thumbnailBottom !== null ? thumbnailBottom : galleryBottom;
+
+      // DEBUG
+      console.log('[scroll]', {
+        firstRowTop: Math.round(firstRowTop),
+        galleryBottom: Math.round(galleryBottom),
+        thumbnailBottom: thumbnailBottom !== null ? Math.round(thumbnailBottom) : 'n/a',
+        fadeStartY: Math.round(fadeStartY),
+        isGridOverlapping,
+      });
 
       // ALWAYS update overlap state (used for pointer events and video pause)
       // This must run regardless of animation phase
@@ -752,22 +766,28 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             zIndex: computedGalleryOpacity < 0.1 ? 1 : 10,
             opacity: computedGalleryOpacity,
             transition: galleryTransitionEnabled ? "opacity 300ms ease-out" : "none",
-            // Disable pointer events when gallery is faded out, re-enable when visible
-            pointerEvents: isGridOverlapping ? 'none' : 'auto',
+            // Container never blocks clicks on grid tiles beneath it
+            pointerEvents: 'none',
             overflow: 'hidden',
           }}
         >
-          {isInformationActive ? (
-            <InformationPage settings={settings} />
-          ) : displayedProject ? (
-            <MediaGallery
-              ref={mediaGalleryRef}
-              key={displayedProject.slug?.current}
-              project={displayedProject}
-              allowAutoPlay={animationPhase === 'ready'}
-              controlsDisabled={isGridOverlapping}
-            />
-          ) : null}
+          <div style={{
+            pointerEvents: isGridOverlapping ? 'none' : 'auto',
+            height: peekAmount ? `calc(100% - ${peekAmount}px)` : 'calc(100% - 15vh)',
+            overflow: 'hidden',
+          }}>
+            {isInformationActive ? (
+              <InformationPage settings={settings} />
+            ) : displayedProject ? (
+              <MediaGallery
+                ref={mediaGalleryRef}
+                key={displayedProject.slug?.current}
+                project={displayedProject}
+                allowAutoPlay={animationPhase === 'ready'}
+                controlsDisabled={isGridOverlapping}
+              />
+            ) : null}
+          </div>
         </div>
       )}
 
