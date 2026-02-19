@@ -528,15 +528,6 @@ export default function PortfolioShell({ projects, initialProject, initialInform
       const thumbnailBottom = mediaGalleryRef.current?.getThumbnailBottom?.() ?? null;
       const fadeStartY = thumbnailBottom !== null ? thumbnailBottom : galleryBottom;
 
-      // DEBUG
-      console.log('[scroll]', {
-        firstRowTop: Math.round(firstRowTop),
-        galleryBottom: Math.round(galleryBottom),
-        thumbnailBottom: thumbnailBottom !== null ? Math.round(thumbnailBottom) : 'n/a',
-        fadeStartY: Math.round(fadeStartY),
-        isGridOverlapping,
-      });
-
       // ALWAYS update overlap state (used for pointer events and video pause)
       // This must run regardless of animation phase
       // Use fadeStartY so clickability syncs with when fade begins
@@ -760,6 +751,10 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     return galleryScrollOpacity;
   })();
 
+  // Z-index is now fixed at 10 (gallery always in front visually)
+  // Opacity handles visibility, pointer-events handles click-through
+  // This eliminates Chrome iOS flicker caused by z-index transitions during dvh recalculations
+
   // Determine if gallery transition should be enabled
   const galleryTransitionEnabled =
     animationPhase === 'gallery-fading-in' ||
@@ -798,8 +793,8 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             left: isMobile ? 0 : 'calc(100% / 6)',
             right: 0,
             height: peekAmount ? `calc(100dvh - ${peekAmount}px)` : '85dvh',
-            // When gallery is fading, drop z-index below grid so tiles receive clicks
-            zIndex: computedGalleryOpacity < 0.1 ? 1 : 10,
+            // Gallery stays in front; opacity handles visibility, pointer-events handles click-through
+            zIndex: 10,
             opacity: computedGalleryOpacity,
             transition: galleryTransitionEnabled ? "opacity 300ms ease-out" : "none",
             // Container never blocks clicks on grid tiles beneath it
@@ -868,7 +863,12 @@ export default function PortfolioShell({ projects, initialProject, initialInform
 
             // Normal peek position when gallery is open
             // BUT NOT during idle phase - we need to stay at landing until grid-animating starts
-            if (showGallery && gridPeekTop && animationPhase !== 'idle') {
+            if (showGallery && peekAmount && animationPhase !== 'idle') {
+              // In ready state, use CSS calc so grid moves with gallery as browser UI changes
+              // Animation phases keep pixel values (gridPeekTop) for smooth transitions
+              if (animationPhase === 'ready') {
+                return `calc(100dvh - ${peekAmount}px)`;
+              }
               return gridPeekTop;
             }
             // Landing position - use ref for most accurate value (state may be stale after gallery close)

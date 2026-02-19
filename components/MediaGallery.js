@@ -46,6 +46,10 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   const loadedCountRef = useRef(0);
   const totalThumbnails = media.length > 1 ? media.length : 0;
 
+  // Cache thumbnail bottom position to avoid getBoundingClientRect() on every scroll
+  // Chrome iOS returns inconsistent values during momentum scrolling, causing flicker
+  const thumbnailBottomRef = useRef(null);
+
   const handleThumbnailLoad = useCallback(() => {
     loadedCountRef.current += 1;
     if (loadedCountRef.current >= totalThumbnails) {
@@ -69,10 +73,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     resumeVideo: () => {
       videoPlayerRef.current?.resume();
     },
-    getThumbnailBottom: () => {
-      if (!scrollContainerRef.current) return null;
-      return scrollContainerRef.current.getBoundingClientRect().bottom;
-    },
+    getThumbnailBottom: () => thumbnailBottomRef.current,
   }), []);
 
   // Fade in initial layer on mount - wait for thumbnails and initial media
@@ -215,6 +216,25 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [updateScrollState, media.length]);
+
+  // Cache thumbnail bottom position to avoid getBoundingClientRect() on every scroll
+  // Chrome iOS returns inconsistent values during momentum scrolling, causing flicker
+  useEffect(() => {
+    const updateThumbnailBottom = () => {
+      if (scrollContainerRef.current) {
+        thumbnailBottomRef.current = scrollContainerRef.current.getBoundingClientRect().bottom;
+      }
+    };
+
+    // Calculate after a short delay to ensure layout is stable
+    const timer = setTimeout(updateThumbnailBottom, 100);
+    window.addEventListener('resize', updateThumbnailBottom);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', updateThumbnailBottom);
+    };
+  }, [thumbnailsReady]); // Recalculate when thumbnails finish loading
 
   // Update scroll state when thumbnails finish loading
   useEffect(() => {

@@ -25,14 +25,14 @@ function SiteLayoutInner({ artistName, settings, projects, children }) {
 export default function SiteLayoutClient({ artistName, settings, projects, children }) {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen">
-        <div className="fixed top-0 left-0 h-screen w-1/6 p-4" />
-        <main className="sm:ml-[16.666%] w-full sm:w-[83.333%] min-h-screen" />
-      </div>
-    }>
-      <SiteLayoutInner artistName={artistName} settings={settings} projects={projects}>
-        {children}
-      </SiteLayoutInner>
+        <div className="flex min-h-screen">
+          <div className="fixed top-0 left-0 h-screen w-1/6 p-4" />
+          <main className="sm:ml-[16.666%] w-full sm:w-[83.333%] min-h-screen" />
+        </div>
+      }>
+        <SiteLayoutInner artistName={artistName} settings={settings} projects={projects}>
+          {children}
+        </SiteLayoutInner>
     </Suspense>
   );
 }
