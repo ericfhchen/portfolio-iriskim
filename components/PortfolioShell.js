@@ -50,6 +50,10 @@ export default function PortfolioShell({ projects, initialProject, initialInform
   // This allows grid-returning animation to have a valid target
   const landingPaddingRef = useRef(0);
 
+  // Track previous viewport width to avoid recalculating padding on height-only changes
+  // (prevents layout shift from Safari/Chrome dynamic browser UI)
+  const prevViewportWidthRef = useRef(0);
+
   // Track if grid transition should be enabled (persists through animation sequence)
   const [transitionEnabled, setTransitionEnabled] = useState(false);
 
@@ -97,15 +101,24 @@ export default function PortfolioShell({ projects, initialProject, initialInform
   // Mobile: shows first 4 rows with 5th row peeking at the bottom of viewport
   // IMPORTANT: Always calculate and store in ref, but only set state when at landing
   useEffect(() => {
-    const calculatePadding = () => {
+    const calculatePadding = (forceRecalc = false) => {
       if (!gridRef.current) return;
+
+      const currentWidth = window.innerWidth;
+
+      // Skip recalculation if only height changed (prevents Safari/Chrome browser UI shift)
+      // Always calculate on first run (prevViewportWidthRef.current === 0) or when forced
+      if (!forceRecalc && prevViewportWidthRef.current !== 0 && currentWidth === prevViewportWidthRef.current) {
+        return;
+      }
+      prevViewportWidthRef.current = currentWidth;
 
       const rowContainer = gridRef.current.querySelector('.w-full.flex.flex-col');
       if (!rowContainer) return;
 
       const rowElements = Array.from(rowContainer.children);
-      const mobile = window.innerWidth <= 640;
-      const visibleRows = mobile ? 4 : 2;
+      const mobile = currentWidth <= 640;
+      const visibleRows = mobile ? 3 : 2;
       const peekRowIndex = visibleRows; // 0-indexed: row after the visible ones
 
       if (rowElements.length < peekRowIndex + 1) {
@@ -140,10 +153,33 @@ export default function PortfolioShell({ projects, initialProject, initialInform
       setIsPaddingReady(true);
     };
 
+    const handleResize = () => calculatePadding(false);
+
     // Use requestAnimationFrame to ensure DOM is ready
-    requestAnimationFrame(calculatePadding);
-    window.addEventListener('resize', calculatePadding);
-    return () => window.removeEventListener('resize', calculatePadding);
+    // Retry if rows aren't ready yet (ProjectGrid may still be rendering with fallback width)
+    let retryCount = 0;
+    const maxRetries = 5;
+    const attemptCalculation = () => {
+      const rowContainer = gridRef.current?.querySelector('.w-full.flex.flex-col');
+      const rowElements = rowContainer ? Array.from(rowContainer.children) : [];
+      const mobile = window.innerWidth <= 640;
+      const neededRows = mobile ? 4 : 3;
+
+      if (rowElements.length < neededRows && retryCount < maxRetries) {
+        retryCount++;
+        requestAnimationFrame(attemptCalculation);
+        return;
+      }
+      calculatePadding(true);
+    };
+    // Wait for React hydration cycle to complete before calculating
+    // ProjectGrid starts with windowWidth=0, then updates - we need to wait for that
+    setTimeout(() => {
+      requestAnimationFrame(attemptCalculation);
+    }, 0);
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, [initialProject, showGallery]);
 
   // Calculate grid peek padding (used when project is selected)
@@ -761,7 +797,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             top: 0,
             left: isMobile ? 0 : 'calc(100% / 6)',
             right: 0,
-            height: peekAmount ? `calc(100vh - ${peekAmount}px)` : '85vh',
+            height: peekAmount ? `calc(100dvh - ${peekAmount}px)` : '85dvh',
             // When gallery is fading, drop z-index below grid so tiles receive clicks
             zIndex: computedGalleryOpacity < 0.1 ? 1 : 10,
             opacity: computedGalleryOpacity,
@@ -773,7 +809,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
         >
           <div style={{
             pointerEvents: isGridOverlapping ? 'none' : 'auto',
-            height: peekAmount ? `calc(100% - ${peekAmount}px)` : 'calc(100% - 15vh)',
+            height: peekAmount ? `calc(100% - ${peekAmount}px)` : 'calc(100% - 15dvh)',
             overflow: 'hidden',
           }}>
             {isInformationActive ? (

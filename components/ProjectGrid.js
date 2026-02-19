@@ -15,7 +15,7 @@ export default function ProjectGrid({ projects, onProjectClick, onProjectHover }
   }, []);
 
   const rows = useMemo(
-    () => buildGridRows(projects, windowWidth || 1400),
+    () => buildGridRows(projects, windowWidth || 375),
     [projects, windowWidth]
   );
 

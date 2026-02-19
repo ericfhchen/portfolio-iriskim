@@ -73,11 +73,11 @@ Cursor on boundary causes rapid mouseenter oscillation. Track recent hovers; if 
 ## Mobile Grid Logic (`PortfolioShell.js`, `gridLayout.js`, `ProjectGrid.js`)
 
 ### Landing Row Peek
-Desktop shows 2 rows + 8% peek of 3rd. Mobile shows 4 rows + 8% peek of 5th.
+Desktop shows 2 rows + 8% peek of 3rd. Mobile shows 3 rows + 8% peek of 4th.
 `calculatePadding()` branches on `window.innerWidth <= 640`:
 ```js
 const mobile = window.innerWidth <= 640;
-const visibleRows = mobile ? 4 : 2;
+const visibleRows = mobile ? 3 : 2;
 const peekRowIndex = visibleRows; // row after visible ones
 ```
 Sums heights of `visibleRows` rows + gaps, adds 8% of peek row height, then computes padding.

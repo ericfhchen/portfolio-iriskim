@@ -302,7 +302,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
       {/* Main display area with dual-layer crossfade - flex-1 to fill available space */}
       <div
         className={`relative w-full ${isMobile ? 'flex-1 min-h-0' : ''}`}
-        style={isMobile ? {} : { height: "73vh" }}
+        style={isMobile ? {} : { height: "73dvh" }}
       >
         {layers.map((layer) => {
           const item = media[layer.index];
