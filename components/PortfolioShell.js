@@ -580,7 +580,6 @@ export default function PortfolioShell({ projects, initialProject, initialInform
       // This prevents false-positive overlap on info page load (grid is pre-scrolled from animation)
       if (!isInformationActive) {
         const overlapping = firstRowTop < fadeStartY - 2;
-        console.log('[PSScroll]', { firstRowTop: firstRowTop.toFixed(1), fadeStartY: fadeStartY.toFixed(1), effectivePeek: effectivePeek.toFixed(1), viewportHeight, thumbnailBottom, overlapping });
         // Only update state if value changed (prevents re-renders during scroll animation)
         if (overlapping !== prevOverlappingRef.current) {
           prevOverlappingRef.current = overlapping;
@@ -833,36 +832,8 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     animationPhase === 'gallery-preparing-fade-out' ||
     isSameProjectScrollingRef?.current;  // Enable transition during same-project scroll
 
-  // DEBUG: log key values on every render
-  if (typeof window !== 'undefined') {
-    console.log('[PSDebug]', {
-      isInformationActive,
-      animationPhase,
-      isGridOverlapping,
-      galleryScrollOpacity,
-      computedGalleryOpacity,
-      outerPointerEvents: isInformationActive ? 'auto' : 'none',
-    });
-  }
-
   return (
     <div ref={shellRef}>
-      {/* DEBUG overlay */}
-      {typeof window !== 'undefined' && (
-        <div style={{
-          position: 'fixed', bottom: 8, left: 8, zIndex: 9999,
-          background: 'rgba(0,0,0,0.75)', color: '#0f0', fontFamily: 'monospace',
-          fontSize: 11, padding: '6px 10px', borderRadius: 4, pointerEvents: 'none',
-          lineHeight: 1.6,
-        }}>
-          <div>isInfoActive: <b>{String(isInformationActive)}</b></div>
-          <div>phase: <b>{animationPhase}</b></div>
-          <div>isGridOverlap: <b>{String(isGridOverlapping)}</b></div>
-          <div>scrollOpacity: <b>{galleryScrollOpacity?.toFixed(3)}</b></div>
-          <div>computedOpacity: <b>{computedGalleryOpacity?.toFixed(3)}</b></div>
-          <div>outerPE: <b>{isInformationActive ? 'auto' : 'none'}</b></div>
-        </div>
-      )}
       {/* Fixed "back to project" button - visible when grid overlaps gallery (not for information page) */}
       {displayedProject && !isInformationActive && animationPhase === 'ready' && isGridOverlapping && (
         <button

@@ -174,9 +174,8 @@ export default function InformationPage({ settings }) {
       {imageUrl && (
         <div
           style={{
-            width: isMobile ? "100%" : "50%",
+            width: isMobile ? "100%" : isShortViewport ? "35%" : "50%",
             marginBottom: isMobile ? "1.5rem" : "2rem",
-            flexShrink: 0,
           }}
         >
           <Image
@@ -198,8 +197,8 @@ export default function InformationPage({ settings }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: (isMobile || isShortViewport) ? "1fr" : "1fr 1fr 2fr",
-          gap: (isMobile || isShortViewport) ? "1rem" : "3rem",
+          gridTemplateColumns: isMobile ? "1fr" : isShortViewport ? "2fr 2fr 1fr" : "1fr 1fr 2fr",
+          gap: isMobile ? "1rem" : "3rem",
         }}
       >
         {/* Bio column (wider) */}
