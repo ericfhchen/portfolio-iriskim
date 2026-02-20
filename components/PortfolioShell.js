@@ -106,6 +106,29 @@ export default function PortfolioShell({ projects, initialProject, initialInform
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Update stable viewport height on desktop resize (but not mobile address bar changes)
+  // Desktop: update on ANY resize (width or height) - user is resizing browser window
+  // Mobile: only update on width change - height-only changes are address bar showing/hiding
+  useEffect(() => {
+    let prevWidth = window.innerWidth;
+
+    const handleResize = () => {
+      const currentWidth = window.innerWidth;
+      const widthChanged = currentWidth !== prevWidth;
+      const isMobileWidth = currentWidth <= 640;
+      prevWidth = currentWidth;
+
+      // Desktop: update on ANY resize (width or height)
+      // Mobile: only update on width change (preserves address bar fix)
+      if (widthChanged || !isMobileWidth) {
+        stableViewportHeightRef.current = window.innerHeight;
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Calculate top padding for landing view
   // Desktop: shows first 2 rows with 3rd row peeking at the bottom of viewport
   // Mobile: shows first 4 rows with 5th row peeking at the bottom of viewport
@@ -533,29 +556,51 @@ export default function PortfolioShell({ projects, initialProject, initialInform
       // Use stable viewport height to avoid flicker from mobile address bar changes
       // On iOS Safari, window.innerHeight changes when address bar shows/hides
       const viewportHeight = stableViewportHeightRef.current || window.innerHeight;
-      // Use peekAmount if available, otherwise estimate 15% of viewport
-      const effectivePeek = peekAmount || viewportHeight * 0.15;
+      // Calculate fresh peekAmount to avoid race condition during resize
+      // The peekAmount state may be stale during resize while CSS padding updates immediately
+      // This matches the logic in the peekAmount calculation useEffect
+      const isMobileWidth = window.innerWidth <= 640;
+      const peekPercent = isMobileWidth ? 0.25 : 0.15;
+      const freshPeekAmount = firstRow.offsetHeight * peekPercent;
+      const effectivePeek = freshPeekAmount || viewportHeight * 0.15;
       const galleryBottom = viewportHeight - effectivePeek;
 
       const fadeEndY = viewportHeight * 0.5; // Fully faded at 50% viewport
 
       // Surgical threshold: fade starts exactly when grid reaches bottom of thumbnail row
+      // For Information page (no thumbnail row), use a point just above the peek position
+      // with a small buffer to prevent false-positive overlap on initial load
       const thumbnailBottom = mediaGalleryRef.current?.getThumbnailBottom?.() ?? null;
-      const fadeStartY = thumbnailBottom !== null ? thumbnailBottom : galleryBottom;
+      const fadeStartY = thumbnailBottom !== null
+        ? thumbnailBottom
+        : (viewportHeight - effectivePeek - 10); // 10px buffer for Information page
 
-      // ALWAYS update overlap state (used for pointer events and video pause)
-      // This must run regardless of animation phase
-      // Use fadeStartY so clickability syncs with when fade begins
-      const overlapping = firstRowTop < fadeStartY;
-      // Only update state if value changed (prevents re-renders during scroll animation)
-      if (overlapping !== prevOverlappingRef.current) {
-        prevOverlappingRef.current = overlapping;
-        setIsGridOverlapping(overlapping);
+      // Update overlap state only for project pages (not info page)
+      // On info page, isGridOverlapping is derived from galleryScrollOpacity via a separate effect
+      // This prevents false-positive overlap on info page load (grid is pre-scrolled from animation)
+      if (!isInformationActive) {
+        const overlapping = firstRowTop < fadeStartY - 2;
+        console.log('[PSScroll]', { firstRowTop: firstRowTop.toFixed(1), fadeStartY: fadeStartY.toFixed(1), effectivePeek: effectivePeek.toFixed(1), viewportHeight, thumbnailBottom, overlapping });
+        // Only update state if value changed (prevents re-renders during scroll animation)
+        if (overlapping !== prevOverlappingRef.current) {
+          prevOverlappingRef.current = overlapping;
+          setIsGridOverlapping(overlapping);
+        }
       }
 
       // Don't update opacity during animation phases - keep it at 1
       // This also prevents re-renders during JS animation
       if (animationPhase !== 'ready') {
+        return;
+      }
+
+      // Info page at natural scroll position: grid is rendered at top but page isn't scrolled,
+      // so firstRowTop being near 0 is expected - don't treat it as overlap
+      if (isInformationActive && window.scrollY === 0) {
+        if (Math.abs(1 - prevOpacityRef.current) > 0.01) {
+          prevOpacityRef.current = 1;
+          setGalleryScrollOpacity(1);
+        }
         return;
       }
 
@@ -582,7 +627,15 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     window.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll(); // Initial check
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [displayedProject, isInformationActive, peekAmount, animationPhase, setGalleryScrollOpacity]);
+  }, [displayedProject, isInformationActive, animationPhase, setGalleryScrollOpacity]);
+
+  // Info page: derive isGridOverlapping from galleryScrollOpacity
+  // The scroll handler skips updating overlap for info page (pre-scrolled grid causes false positive)
+  // Instead, overlap becomes true only when the page has actually faded (opacity drops below 0.99)
+  useEffect(() => {
+    if (!isInformationActive) return;
+    setIsGridOverlapping(galleryScrollOpacity < 0.99);
+  }, [isInformationActive, galleryScrollOpacity]);
 
   // Pause video when grid overlaps gallery, resume when overlap ends (projects only)
   useEffect(() => {
@@ -780,8 +833,36 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     animationPhase === 'gallery-preparing-fade-out' ||
     isSameProjectScrollingRef?.current;  // Enable transition during same-project scroll
 
+  // DEBUG: log key values on every render
+  if (typeof window !== 'undefined') {
+    console.log('[PSDebug]', {
+      isInformationActive,
+      animationPhase,
+      isGridOverlapping,
+      galleryScrollOpacity,
+      computedGalleryOpacity,
+      outerPointerEvents: isInformationActive ? 'auto' : 'none',
+    });
+  }
+
   return (
     <div ref={shellRef}>
+      {/* DEBUG overlay */}
+      {typeof window !== 'undefined' && (
+        <div style={{
+          position: 'fixed', bottom: 8, left: 8, zIndex: 9999,
+          background: 'rgba(0,0,0,0.75)', color: '#0f0', fontFamily: 'monospace',
+          fontSize: 11, padding: '6px 10px', borderRadius: 4, pointerEvents: 'none',
+          lineHeight: 1.6,
+        }}>
+          <div>isInfoActive: <b>{String(isInformationActive)}</b></div>
+          <div>phase: <b>{animationPhase}</b></div>
+          <div>isGridOverlap: <b>{String(isGridOverlapping)}</b></div>
+          <div>scrollOpacity: <b>{galleryScrollOpacity?.toFixed(3)}</b></div>
+          <div>computedOpacity: <b>{computedGalleryOpacity?.toFixed(3)}</b></div>
+          <div>outerPE: <b>{isInformationActive ? 'auto' : 'none'}</b></div>
+        </div>
+      )}
       {/* Fixed "back to project" button - visible when grid overlaps gallery (not for information page) */}
       {displayedProject && !isInformationActive && animationPhase === 'ready' && isGridOverlapping && (
         <button
@@ -815,13 +896,14 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             zIndex: 10,
             opacity: computedGalleryOpacity,
             transition: galleryTransitionEnabled ? "opacity 300ms ease-out" : "none",
-            // Container never blocks clicks on grid tiles beneath it
-            pointerEvents: 'none',
+            // Information page: always interactive (grid scroll position irrelevant)
+            // Project gallery: pass through to grid tiles beneath
+            pointerEvents: (isInformationActive && !isGridOverlapping) ? 'auto' : 'none',
             overflow: 'hidden',
           }}
         >
           <div style={{
-            pointerEvents: isGridOverlapping ? 'none' : 'auto',
+            pointerEvents: computedGalleryOpacity < 0.1 ? 'none' : 'auto',
             height: peekAmount ? `calc(100% - ${peekAmount}px)` : `calc(100% - ${isMobile ? '15svh' : '15dvh'})`,
             overflow: 'hidden',
           }}>

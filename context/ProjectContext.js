@@ -104,6 +104,7 @@ export function ProjectProvider({ children, projects }) {
   const seedInformation = useCallback(() => {
     setActiveSlug("information");
     setShowGallery(true);
+    setGalleryScrollOpacity(1);
     setAnimationPhase('ready');
   }, []);
 

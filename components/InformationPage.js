@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { PortableText } from "@portabletext/react";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -8,14 +8,36 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
 
 function EmailBlock({ email }) {
+  const isMobile = useIsMobile();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(email);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(email);
+      } else {
+        // Fallback for mobile Safari / non-HTTPS
+        const textArea = document.createElement("textarea");
+        textArea.value = email;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Copy failed:", err);
+    }
   };
+
+  // Mobile: only show "copied" label, never "copy"
+  // Desktop: show "copy" on hover, "copied" after click
+  const showLabel = isMobile ? copied : (hovered || copied);
+  const labelText = isMobile ? "copied" : (copied ? "copied" : "copy");
 
   return (
     <span
@@ -24,17 +46,17 @@ function EmailBlock({ email }) {
       onMouseLeave={() => setHovered(false)}
       onClick={handleCopy}
     >
-      <span style={{ opacity: hovered ? 0.3 : 1, transition: "opacity 200ms" }}>
+      <span style={{ opacity: (isMobile ? copied : hovered) ? 0.3 : 1, transition: "opacity 200ms" }}>
         {email}
       </span>
       <span
         style={{
-          opacity: !hovered && !copied ? 0 : copied ? 0.25 : 0.4,
+          opacity: showLabel ? (copied ? 0.25 : 0.4) : 0,
           transition: "opacity 200ms",
           fontSize: "0.85em",
         }}
       >
-        {copied ? "copied" : "copy"}
+        {labelText}
       </span>
     </span>
   );
@@ -126,6 +148,19 @@ export default function InformationPage({ settings }) {
   const isMobile = useIsMobile();
   const { informationImage, bio, contactLinks } = settings || {};
 
+  // Track viewport height for responsive column stacking
+  const [viewportHeight, setViewportHeight] = useState(null);
+
+  useEffect(() => {
+    const updateHeight = () => setViewportHeight(window.innerHeight);
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, []);
+
+  // Stack columns when viewport is too short (< 600px) to prevent text cropping
+  const isShortViewport = viewportHeight && viewportHeight < 600;
+
   const imageUrl = informationImage?.asset?.url;
   const imageDimensions = informationImage?.asset?.metadata?.dimensions;
   const imageWidth = imageDimensions?.width || 1200;
@@ -133,7 +168,7 @@ export default function InformationPage({ settings }) {
 
   return (
     <div
-      className={`w-full h-full flex flex-col overflow-y-auto ${isMobile ? "p-2 pt-8" : "p-4"}`}
+      className={`w-full h-full flex flex-col overflow-y-auto ${isMobile ? "p-2 pt-12" : "p-4"}`}
     >
       {/* Image */}
       {imageUrl && (
@@ -163,8 +198,8 @@ export default function InformationPage({ settings }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 2fr",
-          gap: isMobile ? "1rem" : "3rem",
+          gridTemplateColumns: (isMobile || isShortViewport) ? "1fr" : "1fr 1fr 2fr",
+          gap: (isMobile || isShortViewport) ? "1rem" : "3rem",
         }}
       >
         {/* Bio column (wider) */}

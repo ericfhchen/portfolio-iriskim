@@ -306,7 +306,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
 
   // Credits component - reused in different positions for mobile/desktop
   const creditsContent = (
-    <div className={isMobile ? "mt-2 mb-1" : "mb-2"}>
+    <div className={isMobile ? "mt-2 mb-1" : "mb-2 flex-shrink-0"}>
       <span>
         {project.title}. {project.year}.
         {renderCaptionInline(project.caption) && ` ${renderCaptionInline(project.caption)}`}
@@ -321,8 +321,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
 
       {/* Main display area with dual-layer crossfade - flex-1 to fill available space */}
       <div
-        className={`relative w-full ${isMobile ? 'flex-1 min-h-0' : ''}`}
-        style={isMobile ? {} : { height: "73dvh" }}
+        className="relative w-full flex-1 min-h-0"
       >
         {layers.map((layer) => {
           const item = media[layer.index];
@@ -361,7 +360,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                     src={urlFor(item).width(1400).quality(90).url()}
                     alt={project.title}
                     fill
-                    className={`object-contain ${isMobile ? 'object-center' : 'object-left'}`}
+                    className={`object-contain ${isMobile ? 'object-center' : 'object-left-top'}`}
                     onLoad={
                       layer.zIndex === 1
                         ? () => handleLayerReady(layer.id)
@@ -381,7 +380,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
       {/* Thumbnail row with horizontal scroll */}
       {media.length > 1 && (
         <div
-          className="relative mt-1"
+          className="relative mt-1 flex-shrink-0"
           style={{
             opacity: thumbnailOpacity,
             transition: "opacity 200ms ease-out",

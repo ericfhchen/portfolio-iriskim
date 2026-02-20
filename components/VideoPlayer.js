@@ -348,6 +348,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   // Calculate wrapper dimensions using aspect ratio
   // Keep consistent sizing before AND after video loads to prevent resize jump
   // When fullscreen, fill the container and let video use object-fit: contain
+  // Use 100% height to respect flex container, not fixed vh units
   const wrapperStyle = {
     position: "relative",
     display: isFullscreen ? "flex" : "inline-block",
@@ -355,7 +356,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     alignItems: "center",
     ...(isFullscreen
       ? { width: "100%", height: "100%" }
-      : { maxHeight: "73vh", maxWidth: "100%" }
+      : { maxHeight: "100%", maxWidth: "100%" }
     ),
   };
 
@@ -363,10 +364,11 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   // But NOT in fullscreen mode - let video fill the screen
   if (!isFullscreen && parsedAspectRatio) {
     wrapperStyle.aspectRatio = parsedAspectRatio;
-    // Use width-based sizing constrained by maxHeight
-    // This ensures video never overflows viewport
-    wrapperStyle.width = `min(100%, calc(73vh * ${parsedAspectRatio}))`;
-    wrapperStyle.height = "auto";
+    // Use maxHeight instead of height so wrapper sizes to video's intrinsic size
+    // but never exceeds container. This fixes: top-alignment, controls positioning,
+    // and prevents whitespace clicks from triggering play/pause
+    wrapperStyle.maxHeight = "100%";
+    wrapperStyle.width = "auto";
   }
 
   return (
