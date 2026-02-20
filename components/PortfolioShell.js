@@ -79,6 +79,10 @@ export default function PortfolioShell({ projects, initialProject, initialInform
   const prevOverlappingRef = useRef(false);
   const prevOpacityRef = useRef(1);
 
+  // Cache stable viewport height (svh equivalent) to avoid flicker from mobile address bar
+  // On iOS Safari, window.innerHeight changes when address bar shows/hides, but svh stays constant
+  const stableViewportHeightRef = useRef(null);
+
   // Refs for debouncing rapid sidebar hovers
   const hoverScrollTimeoutRef = useRef(null);
   const lastHoverTimeRef = useRef(0);
@@ -86,6 +90,12 @@ export default function PortfolioShell({ projects, initialProject, initialInform
 
   // Seed the cache with SSR-fetched project on mount, or seed information page
   useEffect(() => {
+    // Capture stable viewport height on mount (before any address bar changes)
+    // This gives us the equivalent of CSS svh for JS calculations
+    if (stableViewportHeightRef.current === null) {
+      stableViewportHeightRef.current = window.innerHeight;
+    }
+
     seedProjects(projects);        // warm cache with all SSR project data
     if (initialProject) {
       seedProject(initialProject);
@@ -309,9 +319,10 @@ export default function PortfolioShell({ projects, initialProject, initialInform
 
     // Get gallery element for direct opacity manipulation
     const galleryElement = galleryRef.current;
-    const effectivePeek = peekAmount || window.innerHeight * 0.15;
-    const galleryBottom = window.innerHeight - effectivePeek;
-    const fadeEndY = window.innerHeight * 0.5;
+    const viewportHeight = stableViewportHeightRef.current || window.innerHeight;
+    const effectivePeek = peekAmount || viewportHeight * 0.15;
+    const galleryBottom = viewportHeight - effectivePeek;
+    const fadeEndY = viewportHeight * 0.5;
     const fadeStartY = galleryBottom * 0.9; // Start fading at 15% overlap
 
     // Skip React scroll handler during animation
@@ -395,9 +406,10 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     const distance = targetY - startY;
 
     const galleryElement = galleryRef.current;
-    const effectivePeek = peekAmount || window.innerHeight * 0.15;
-    const galleryBottom = window.innerHeight - effectivePeek;
-    const fadeEndY = window.innerHeight * 0.5;
+    const viewportHeight = stableViewportHeightRef.current || window.innerHeight;
+    const effectivePeek = peekAmount || viewportHeight * 0.15;
+    const galleryBottom = viewportHeight - effectivePeek;
+    const fadeEndY = viewportHeight * 0.5;
 
     isAnimatingKeepBrowsingRef.current = true;
     setIsHoverLocked(true);
@@ -518,11 +530,14 @@ export default function PortfolioShell({ projects, initialProject, initialInform
       if (!firstRow) return;
 
       const firstRowTop = firstRow.getBoundingClientRect().top;
+      // Use stable viewport height to avoid flicker from mobile address bar changes
+      // On iOS Safari, window.innerHeight changes when address bar shows/hides
+      const viewportHeight = stableViewportHeightRef.current || window.innerHeight;
       // Use peekAmount if available, otherwise estimate 15% of viewport
-      const effectivePeek = peekAmount || window.innerHeight * 0.15;
-      const galleryBottom = window.innerHeight - effectivePeek;
+      const effectivePeek = peekAmount || viewportHeight * 0.15;
+      const galleryBottom = viewportHeight - effectivePeek;
 
-      const fadeEndY = window.innerHeight * 0.5; // Fully faded at 50% viewport
+      const fadeEndY = viewportHeight * 0.5; // Fully faded at 50% viewport
 
       // Surgical threshold: fade starts exactly when grid reaches bottom of thumbnail row
       const thumbnailBottom = mediaGalleryRef.current?.getThumbnailBottom?.() ?? null;
@@ -580,20 +595,23 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     }
   }, [isGridOverlapping, animationPhase, isInformationActive]);
 
-  // Handle manual scroll changing overlap state - animate button text
+  // Handle button fade animations on overlap state changes
   useEffect(() => {
     // Skip during animation phases or when button is already animating
     if (animationPhase !== 'ready' || isAnimatingKeepBrowsingRef.current) return;
 
-    // Detect change in overlap state from manual scrolling
-    if (wasOverlappingRef.current !== isGridOverlapping && buttonPhase === 'idle') {
-      // Manual scroll changed overlap state - animate text
-      setButtonPhase('fading-out');
-      setTimeout(() => {
-        setButtonPhase('fading-in');
-        setTimeout(() => setButtonPhase('idle'), 300);
-      }, 300);
+    // Button first appears (false → true): start fading-in, then go to idle
+    if (!wasOverlappingRef.current && isGridOverlapping && buttonPhase === 'idle') {
+      // Set to fading-in immediately (renders at opacity 0)
+      setButtonPhase('fading-in');
+      // After a frame, set to idle (CSS transition animates to opacity 1)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setButtonPhase('idle');
+        });
+      });
     }
+
     wasOverlappingRef.current = isGridOverlapping;
   }, [isGridOverlapping, animationPhase, buttonPhase]);
 
@@ -773,7 +791,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             top: isMobile ? '0.5rem' : '1rem',
             right: 11,
             zIndex: 100,
-            opacity: buttonPhase === 'idle' ? 1 : 0,
+            opacity: (buttonPhase === 'fading-out' || buttonPhase === 'fading-in') ? 0 : 1,
             transition: 'opacity 300ms, color 300ms',
             pointerEvents: buttonPhase === 'idle' ? 'auto' : 'none',
           }}
@@ -792,7 +810,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             top: 0,
             left: isMobile ? 0 : 'calc(100% / 6)',
             right: 0,
-            height: peekAmount ? `calc(100dvh - ${peekAmount}px)` : '85dvh',
+            height: peekAmount ? `calc(${isMobile ? '100svh' : '100dvh'} - ${peekAmount}px)` : isMobile ? '85svh' : '85dvh',
             // Gallery stays in front; opacity handles visibility, pointer-events handles click-through
             zIndex: 10,
             opacity: computedGalleryOpacity,
@@ -804,7 +822,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
         >
           <div style={{
             pointerEvents: isGridOverlapping ? 'none' : 'auto',
-            height: peekAmount ? `calc(100% - ${peekAmount}px)` : 'calc(100% - 15dvh)',
+            height: peekAmount ? `calc(100% - ${peekAmount}px)` : `calc(100% - ${isMobile ? '15svh' : '15dvh'})`,
             overflow: 'hidden',
           }}>
             {isInformationActive ? (

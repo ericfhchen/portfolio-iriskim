@@ -97,7 +97,11 @@ export default function SidebarClient({ artistName, projects }) {
   return (
     <>
       {/* Mobile header - hidden on desktop via CSS */}
-      <header className="hidden max-sm:flex fixed top-0 left-0 right-0 z-40 p-2 flex-row items-center gap-6">
+      <header className="hidden max-sm:flex fixed top-0 left-0 right-0 z-40 p-2 flex-row items-center gap-6" style={{
+        willChange: "transform",
+        transform: "translateZ(0)",
+        contain: "layout style paint",
+      }}>
         <Link
           href="/"
           onClick={(e) => {

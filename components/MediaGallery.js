@@ -460,7 +460,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
             <div
               style={{
                 position: 'absolute',
-                left: 0,
+                left: -0.5,
                 top: 0,
                 bottom: 0,
                 width: isMobile ? MOBILE_GRADIENT_WIDTH : HOVER_ZONE_WIDTH,
