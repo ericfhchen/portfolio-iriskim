@@ -31,7 +31,7 @@ export function ProjectProvider({ children, projects }) {
   const [isSwitching, setIsSwitching] = useState(false);
 
   // Animation phase for sequenced transitions
-  // 'idle' | 'scrolling-to-peek' | 'grid-animating' | 'gallery-fading-in' | 'ready'
+  // 'grid-entering' | 'idle' | 'scrolling-to-peek' | 'grid-animating' | 'gallery-fading-in' | 'ready'
   // Return phases: 'gallery-fading-out' | 'grid-returning'
   const [animationPhase, setAnimationPhase] = useState('idle');
 
@@ -99,6 +99,10 @@ export function ProjectProvider({ children, projects }) {
       return { ...prev, ...updates };
     });
   }, []);
+
+  // Trigger entrance slide animation (hard refresh on home page)
+  const triggerEntrance = useCallback(() => setAnimationPhase('grid-entering'), []);
+  const completeEntrance = useCallback(() => setAnimationPhase('idle'), []);
 
   // Seed information page on direct URL load (skip animation, go straight to ready)
   const seedInformation = useCallback(() => {
@@ -340,6 +344,8 @@ export function ProjectProvider({ children, projects }) {
         seedProject,
         seedProjects,
         seedInformation,
+        triggerEntrance,
+        completeEntrance,
       }}
     >
       {children}

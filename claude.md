@@ -52,7 +52,7 @@ if (!canScrollInDirection) {
 ## Animation System
 
 ### Phases
-`idle` → `scrolling-to-peek` → `grid-animating` → `gallery-fading-in` → `ready` → `gallery-preparing-fade-out` → `gallery-fading-out` → `grid-returning-js`
+`grid-entering` → `idle` → `scrolling-to-peek` → `grid-animating` → `gallery-fading-in` → `ready` → `gallery-preparing-fade-out` → `gallery-fading-out` → `grid-returning-js`
 
 ### Key Rules
 - Use pure JS animation (RAF) for scroll + style changes together - CSS transitions desync
@@ -103,6 +103,24 @@ Mobile uses smaller height constraints to allow 2–3 tiles per row (vs desktop 
 - Layout: 3-column grid desktop (image | bio | contact), single column mobile
 - Email detection in PortableText: scans spans with regex, wraps in `EmailBlock` (hover shows "copy", click copies + shows "copied" for 2s)
 - Empty paragraphs render as `<br />` for double line-break support
+
+---
+
+## Grid Entrance Animation (`PortfolioShell.js`, `ProjectContext.js`, `ProjectGrid.js`)
+
+On hard refresh of `/` (navType `navigate` or `reload`), the grid slides up from below the fold into landing position over 800ms.
+
+### Phase: `grid-entering`
+Triggered by `triggerEntrance()` in the mount effect. Gate: `performance.getEntriesByType('navigation')[0].type === 'navigate' || 'reload'`. Does NOT fire on SPA back-navigation or when `initialProject`/`initialInformation` is set.
+
+### Timing problem: SSR mobile → desktop reflow
+`ProjectGrid` starts with `windowWidth=0`, falls back to `375` (mobile layout). `calculatePadding` must NOT run until the desktop layout is committed. Fix: stamp `data-rendered-width={windowWidth || 375}` on the row container. `attemptCalculation` retries (up to 30 RAFs) until `renderedWidth === window.innerWidth`.
+
+### React style prop must stay out of the way during animation
+During `grid-entering`, the paddingTop IIFE returns `undefined` — otherwise React writes `16px` mid-animation and kills the transition. Only `el.style.paddingTop` (set imperatively) drives the animation.
+
+### Handoff without jump
+At animation end: pin `el.style.transition = 'none'` and `el.style.paddingTop = targetPadding` synchronously, then call `completeEntrance()`. React's `idle` render writes the same `targetPadding` value — no jump. Inline styles are naturally overwritten by React on subsequent renders.
 
 ---
 

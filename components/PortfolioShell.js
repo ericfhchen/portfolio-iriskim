@@ -31,6 +31,8 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     seedProject,
     seedProjects,
     seedInformation,
+    triggerEntrance,
+    completeEntrance,
   } = useProject();
 
   // Track the last displayed project for fade-out
@@ -39,6 +41,11 @@ export default function PortfolioShell({ projects, initialProject, initialInform
   // Fixed top padding for landing view (shows 2 rows + peek from bottom)
   const [gridTopPadding, setGridTopPadding] = useState(0);
   const [isPaddingReady, setIsPaddingReady] = useState(false);
+
+  // Grid visibility - false until layout is ready (or entrance animation fires)
+  const [gridVisible, setGridVisible] = useState(false);
+  // True when this page load is a hard-refresh entrance (no sessionStorage flag)
+  const isEntranceRef = useRef(false);
 
   // Grid peek position when project is selected (padding-top to push grid down)
   const [gridPeekTop, setGridPeekTop] = useState(null);
@@ -102,6 +109,17 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     } else if (initialInformation) {
       // Direct URL load of /?information - skip animation, go straight to ready
       seedInformation();
+    } else {
+      // Play entrance on hard refresh (navigate or reload) but NOT on SPA back-navigation.
+      // performance.navigation.type: 'navigate' = fresh load, 'reload' = cmd+R
+      // SPA navigation never triggers a page load so this mount only fires on real loads.
+      const navEntry = performance.getEntriesByType('navigation')[0];
+      const navType = navEntry?.type; // 'navigate' | 'reload' | 'back_forward' | 'prerender'
+      const isHardLoad = navType === 'navigate' || navType === 'reload';
+      if (isHardLoad) {
+        isEntranceRef.current = true;
+        triggerEntrance();
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -191,19 +209,29 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     // Use requestAnimationFrame to ensure DOM is ready
     // Retry if rows aren't ready yet (ProjectGrid may still be rendering with fallback width)
     let retryCount = 0;
-    const maxRetries = 5;
+    const maxRetries = 30;
     const attemptCalculation = () => {
       const rowContainer = gridRef.current?.querySelector('.w-full.flex.flex-col');
       const rowElements = rowContainer ? Array.from(rowContainer.children) : [];
-      const mobile = window.innerWidth <= 640;
+      const currentWidth = window.innerWidth;
+      const mobile = currentWidth <= 640;
       const neededRows = mobile ? 4 : 3;
 
-      if (rowElements.length < neededRows && retryCount < maxRetries) {
+      // Check that ProjectGrid has rendered with the real viewport width
+      // data-rendered-width is set to the windowWidth used for buildGridRows
+      const renderedWidth = rowContainer ? parseInt(rowContainer.dataset.renderedWidth || '0', 10) : 0;
+      const widthReady = renderedWidth === currentWidth;
+
+      if ((rowElements.length < neededRows || !widthReady) && retryCount < maxRetries) {
         retryCount++;
         requestAnimationFrame(attemptCalculation);
         return;
       }
-      calculatePadding(true);
+      // Only calculate if width is ready; if we exhausted retries without widthReady,
+      // skip and let the resize event trigger a recalculation later
+      if (widthReady || rowElements.length >= neededRows) {
+        calculatePadding(true);
+      }
     };
     // Wait for React hydration cycle to complete before calculating
     // ProjectGrid starts with windowWidth=0, then updates - we need to wait for that
@@ -312,6 +340,52 @@ export default function PortfolioShell({ projects, initialProject, initialInform
       return () => clearTimeout(timer);
     }
   }, [animationPhase]);
+
+  // Non-entrance path: make grid visible once padding is ready
+  useEffect(() => {
+    if (isPaddingReady && !isEntranceRef.current) {
+      setGridVisible(true);
+    }
+  }, [isPaddingReady]);
+
+  // Entrance slide: fires once padding is ready on a hard-refresh home load.
+  useEffect(() => {
+    if (!isPaddingReady || !isEntranceRef.current || animationPhase !== 'grid-entering') return;
+    startEntranceSlide();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPaddingReady, animationPhase]);
+
+  const startEntranceSlide = () => {
+    if (!gridRef.current) return;
+    const el = gridRef.current;
+    const targetPadding = (landingPaddingRef.current || 0) + 16;
+
+    // 1. Position below fold, no transition
+    el.style.transition = 'none';
+    el.style.paddingTop = `${window.innerHeight}px`;
+
+    // 2. Make visible (grid is below viewport — user can't see it yet)
+    setGridVisible(true);
+
+    // 3. Double RAF: ensure browser paints below-fold position first
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        el.style.transition = 'padding-top 800ms cubic-bezier(0.4, 0, 0.2, 1)';
+        el.style.paddingTop = `${targetPadding}px`;
+
+        setTimeout(() => {
+          // 4. Hand control back to React.
+          // Pin to targetPadding with no transition, then let React take over.
+          // React's idle IIFE also returns targetPadding, so when it commits there
+          // is no visible difference and no jump.
+          el.style.transition = 'none';
+          el.style.paddingTop = `${targetPadding}px`;
+          isEntranceRef.current = false;
+          completeEntrance(); // → animationPhase = 'idle'
+        }, 800);
+      });
+    });
+  };
 
   const handleProjectClick = (project) => {
     selectProject(project.slug.current);
@@ -904,6 +978,13 @@ export default function PortfolioShell({ projects, initialProject, initialInform
           // When returning to home, animate back to landing padding (use ref for correct value)
           // Otherwise use landing padding from state
           paddingTop: (() => {
+            // During entrance animation, padding is driven entirely by direct DOM manipulation.
+            // Returning any value here causes React to overwrite the transition mid-flight.
+            // Return undefined so React leaves the inline style alone.
+            if (animationPhase === 'grid-entering') {
+              return undefined;
+            }
+
             // During JS animation, padding is set directly on DOM - return undefined to not interfere
             // Actually we need a value here, but JS animation overrides it via direct DOM manipulation
             if (animationPhase === 'grid-returning-js') {
@@ -944,14 +1025,15 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             }
             // Landing position - use ref for most accurate value (state may be stale after gallery close)
             const landingPadding = landingPaddingRef.current || gridTopPadding;
-            return landingPadding > 0 ? landingPadding + 16 : 16;
+            const val = landingPadding > 0 ? landingPadding + 16 : 16;
+            return val;
           })(),
           // Use transitionEnabled to persist transition through animation sequence
           // This prevents stutter when phase changes mid-animation
           // IMPORTANT: Disable CSS transition during JS animation
           // IMPORTANT: The cubic-bezier must match materialEase in lib/easing.js exactly
           transition: (transitionEnabled && animationPhase !== 'grid-returning-js') ? 'padding-top 800ms cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
-          opacity: isPaddingReady ? 1 : 0,
+          opacity: gridVisible ? 1 : 0,
         }}
       >
         <div style={{ position: 'relative' }}>

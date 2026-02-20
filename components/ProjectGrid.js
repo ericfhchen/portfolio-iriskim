@@ -20,7 +20,7 @@ export default function ProjectGrid({ projects, onProjectClick, onProjectHover }
   );
 
   return (
-    <div className="w-full flex flex-col gap-6">
+    <div className="w-full flex flex-col gap-6" data-rendered-width={windowWidth || 375}>
       {rows.map((row, rowIndex) => (
         <div key={rowIndex} className="flex items-start w-full">
           {row.tiles.map((tile) => (
