@@ -2,6 +2,10 @@
 
 import { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 
+// Preload hls.js on module load so it's parsed before any project click.
+// This avoids ~1.1MB of JS parsing during the gallery-fading-in animation.
+const hlsModulePromise = import("hls.js");
+
 // Check if device is mobile (used for quality cap)
 function isMobile() {
   if (typeof window === "undefined") return false;
@@ -111,7 +115,17 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     let hls;
     let targetLevel = -1;
 
-    import("hls.js").then((HlsModule) => {
+    // Defer HLS loading until allowAutoPlay is true (animation phase === 'ready').
+    // The poster image loads independently, so the user sees it during the fade-in
+    // while avoiding ~2s of HLS main-thread work during the animation.
+    if (!allowAutoPlay) {
+      return () => {
+        video.removeEventListener("canplaythrough", handleReady);
+        video.removeEventListener("canplay", handleReady);
+      };
+    }
+
+    hlsModulePromise.then((HlsModule) => {
       const Hls = HlsModule.default;
 
       // Fallback to native HLS for browsers that don't support hls.js (e.g., Safari on iOS)
@@ -205,7 +219,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       video.removeEventListener("canplay", handleReady);
       if (hls) hls.destroy();
     };
-  }, [playbackId, src]);
+  }, [playbackId, src, allowAutoPlay]);
 
   // Autoplay with sound when autoPlay prop is true, video is ready, and allowed
   useEffect(() => {

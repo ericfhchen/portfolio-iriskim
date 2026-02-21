@@ -124,6 +124,61 @@ At animation end: pin `el.style.transition = 'none'` and `el.style.paddingTop = 
 
 ---
 
+## Performance Investigation Results (Feb 2026)
+
+**JS code paths are fast** (<2ms per frame). Jank comes from browser-level work during `gallery-fading-in` phase.
+
+### Root causes identified
+
+1. **HLS.js dynamic import + init (PRIMARY)** — `import("hls.js")` in `VideoPlayer.js:114` loads ~1.1MB JS during the animation. Parsing + executing causes 4 long tasks of 130–172ms each, then HLS manifest/media attachment adds 8+ more long tasks of 50–76ms. Total: ~2s blocked main thread.
+2. **24 thumbnail images loading simultaneously** — `MediaGallery.js:438` uses plain `<img>` tags (no lazy loading). All 24 thumbnails start decoding at once during `gallery-fading-in`, each taking 650–850ms.
+3. **81 opacity layers** — minor contributor but worth noting: 81 elements have non-1 opacity creating compositor layers.
+
+### Ruled out
+- JS animation code (RAF work <2ms/frame)
+- React re-renders (only 8 DOM mutation batches during animation)
+- `will-change`/transform layers (only 1 on page)
+- CSS padding transition (secondary at most)
+- `getBoundingClientRect`, `querySelector`, Newton-Raphson easing — all negligible
+
+### Debug instrumentation files (can be removed)
+- `lib/debugPerf.js` — shared frame timing utility, gated behind `window.__PERF_DEBUG = true`
+- `components/PortfolioShell.js` — has debug imports from debugPerf
+- `components/MediaGallery.js` — has debug imports from debugPerf
+- `lib/easing.js` — has debug imports from debugPerf
+
+---
+
+## TODO: Animation Jank Fixes
+
+Work through these in order. Each is an independent fix. Test each by clicking a project from the grid and checking for smooth animation (no frame drops >20ms during the transition).
+
+### 1. Preload hls.js on page load
+**File:** `components/VideoPlayer.js`
+**Problem:** `import("hls.js")` at line 114 dynamically loads ~1.1MB during animation, blocking main thread for ~2s.
+**Fix:** Eagerly import hls.js at module level (`import Hls from "hls.js"`) or trigger the dynamic import on page load so it's cached before any project click. The HLS constructor/config can stay lazy — just ensure the module is already parsed.
+**Verify:** After fix, clicking a project should show 0 long tasks >100ms in the console. Use `PerformanceObserver` for `longtask` type to check.
+
+### 2. Defer HLS initialization until animation completes
+**File:** `components/VideoPlayer.js`, `components/MediaGallery.js`
+**Problem:** HLS `loadSource()` + `attachMedia()` + `startLoad()` run during `gallery-fading-in` phase, causing long tasks even after the module is cached.
+**Fix:** Don't start HLS loading until `allowAutoPlay` is true (which maps to `animationPhase === 'ready'`). The poster image already loads via the `useEffect` at line 78 — so the user sees the poster during the fade-in, then HLS initializes after `ready`. Pass a prop like `deferLoad` or gate `loadSource` behind `allowAutoPlay`.
+**Verify:** Long tasks should not appear during `gallery-fading-in` → `ready` transition.
+
+### 3. Add `loading="lazy"` or `decoding="async"` to thumbnail images
+**File:** `components/MediaGallery.js` (line 438)
+**Problem:** 24 `<img>` tags load eagerly and simultaneously, causing main-thread decode contention during animation.
+**Fix:** Add `decoding="async"` to each thumbnail `<img>` tag. This tells the browser to decode off the main thread. Optionally also add `loading="lazy"` for thumbnails not in the initial viewport (though all thumbnails are in a horizontal scroll container, so `decoding="async"` is the higher-impact fix).
+**Verify:** Image resource entries during animation should no longer cluster with 650–850ms decode durations.
+
+### 4. Remove debug instrumentation
+**Files:** `components/PortfolioShell.js`, `components/MediaGallery.js`, `lib/easing.js`, `lib/debugPerf.js`
+**Problem:** Debug imports and `perfFrame`/`perfMark`/`perfEnd` calls are still in production code.
+**Fix:** Remove all imports of `debugPerf.js` and all `perfFrame()`, `perfMark()`, `perfEnd()` calls from PortfolioShell, MediaGallery, and easing.js. Then delete `lib/debugPerf.js`. Search for `debugPerf` and `perfFrame\|perfMark\|perfEnd` to find all call sites.
+**Verify:** `grep -r "debugPerf\|perfFrame\|perfMark\|perfEnd" components/ lib/` returns nothing.
+
+---
+
 ## Workflow Rules
 - **Animation changes**: Write plan, get approval, test incrementally
 - **Never**: CSS transition + JS scroll combos

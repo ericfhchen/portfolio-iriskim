@@ -197,9 +197,13 @@ export default function PortfolioShell({ projects, initialProject, initialInform
       // Always store in ref so grid-returning animation has valid target
       landingPaddingRef.current = padding;
 
+      const rowHeights = rowElements.map((r, i) => `row${i}=${r.offsetHeight}`).join(', ');
+      console.log(`[DEBUG calculatePadding] vh=${vh}, mobile=${mobile}, visibleRows=${visibleRows}, topRowsHeight=${topRowsHeight}, peekAmount=${peekAmount.toFixed(1)}, visibleOnLoad=${visibleOnLoad.toFixed(1)}, padding=${padding.toFixed(1)}, renderedWidth=${rowContainer.dataset.renderedWidth}, windowWidth=${currentWidth}, ${rowHeights}`);
+
       // Only set state when not showing gallery (otherwise it stays at 0 while gallery is open)
       if (!initialProject && !showGallery) {
         setGridTopPadding(padding);
+        console.log(`[DEBUG calculatePadding] setState gridTopPadding=${padding.toFixed(1)}`);
       }
       setIsPaddingReady(true);
     };
@@ -359,6 +363,8 @@ export default function PortfolioShell({ projects, initialProject, initialInform
     if (!gridRef.current) return;
     const el = gridRef.current;
     const targetPadding = (landingPaddingRef.current || 0) + 16;
+    const entranceStart = performance.now();
+    console.log(`[DEBUG startEntranceSlide] landingPaddingRef=${landingPaddingRef.current}, targetPadding=${targetPadding}, vh=${window.innerHeight}`);
 
     // 1. Position below fold, no transition
     el.style.transition = 'none';
@@ -381,6 +387,9 @@ export default function PortfolioShell({ projects, initialProject, initialInform
           el.style.transition = 'none';
           el.style.paddingTop = `${targetPadding}px`;
           isEntranceRef.current = false;
+          if (typeof window !== 'undefined' && window.__PERF_DEBUG) {
+            console.warn(`[PERF] entrance-animation total: ${(performance.now() - entranceStart).toFixed(1)}ms`);
+          }
           completeEntrance(); // → animationPhase = 'idle'
         }, 800);
       });
@@ -474,6 +483,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
         if (gridRef.current) {
           gridRef.current.style.willChange = 'auto';
         }
+        galleryElement.style.pointerEvents = '';  // Let React manage
 
         // Trigger one scroll handler call to sync React state with final position
         // This ensures isGridOverlapping and galleryScrollOpacity match final values
@@ -557,6 +567,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
         if (gridRef.current) {
           gridRef.current.style.willChange = 'auto';
         }
+        galleryElement.style.pointerEvents = '';  // Let React manage
         window.dispatchEvent(new Event('scroll'));
 
         // Start fade in of new button text
@@ -948,7 +959,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
           }}
         >
           <div style={{
-            pointerEvents: computedGalleryOpacity < 0.1 ? 'none' : 'auto',
+            pointerEvents: (computedGalleryOpacity < 0.1 || (!isInformationActive && isGridOverlapping)) ? 'none' : 'auto',
             height: peekAmount ? `calc(100% - ${peekAmount}px)` : `calc(100% - ${isMobile ? '15svh' : '15dvh'})`,
             overflow: 'hidden',
           }}>
@@ -982,6 +993,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             // Returning any value here causes React to overwrite the transition mid-flight.
             // Return undefined so React leaves the inline style alone.
             if (animationPhase === 'grid-entering') {
+              console.log(`[DEBUG paddingTop IIFE] phase=grid-entering → undefined`);
               return undefined;
             }
 
@@ -1026,6 +1038,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             // Landing position - use ref for most accurate value (state may be stale after gallery close)
             const landingPadding = landingPaddingRef.current || gridTopPadding;
             const val = landingPadding > 0 ? landingPadding + 16 : 16;
+            console.log(`[DEBUG paddingTop IIFE] phase=${animationPhase}, landing path → val=${val}, landingPaddingRef=${landingPaddingRef.current}, gridTopPadding=${gridTopPadding}, showGallery=${showGallery}`);
             return val;
           })(),
           // Use transitionEnabled to persist transition through animation sequence

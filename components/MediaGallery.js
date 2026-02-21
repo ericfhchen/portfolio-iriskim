@@ -262,9 +262,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
       lastTime = currentTime;
 
       const el = scrollContainerRef.current;
-      if (!el) {
-        return;
-      }
+      if (!el) return;
 
       // Check if we can still scroll in this direction
       const maxScroll = el.scrollWidth - el.clientWidth;
@@ -431,6 +429,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                       src={thumbSrc}
                       alt={`Thumbnail ${index + 1}`}
                       className="h-full w-auto object-cover"
+                      decoding="async"
                       onLoad={handleThumbnailLoad}
                       onError={handleThumbnailLoad}
                       onContextMenu={(e) => e.preventDefault()}
