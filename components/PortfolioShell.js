@@ -952,14 +952,13 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             zIndex: 10,
             opacity: computedGalleryOpacity,
             transition: galleryTransitionEnabled ? "opacity 300ms ease-out" : "none",
-            // Information page: always interactive (grid scroll position irrelevant)
-            // Project gallery: pass through to grid tiles beneath
-            pointerEvents: (isInformationActive && !isGridOverlapping) ? 'auto' : 'none',
+            // Interactive when gallery visible and grid not overlapping (info page or visible gallery)
+            // When grid overlaps, ALL children inherit 'none' — no child override possible
+            pointerEvents: (!isGridOverlapping && (isInformationActive || computedGalleryOpacity >= 0.1)) ? 'auto' : 'none',
             overflow: 'hidden',
           }}
         >
           <div style={{
-            pointerEvents: (computedGalleryOpacity < 0.1 || (!isInformationActive && isGridOverlapping)) ? 'none' : 'auto',
             height: peekAmount ? `calc(100% - ${peekAmount}px)` : `calc(100% - ${isMobile ? '15svh' : '15dvh'})`,
             overflow: 'hidden',
           }}>
