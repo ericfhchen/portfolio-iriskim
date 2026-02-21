@@ -7,7 +7,7 @@ import { urlFor } from "@/sanity/lib/image";
 import { useHover } from "@/context/HoverContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
-export default function GridTile({ project, widthPercent, aspectRatio, onClick, onHover }) {
+export default function GridTile({ project, widthPercent, aspectRatio, onClick, onHover, isFirst, isLast }) {
   const videoRef = useRef(null);
   const tileRef = useRef(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
@@ -99,7 +99,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
         opacity: someOtherHovered ? 0.3 : 1,
         transition: "opacity 300ms"
       }}
-      className="flex-shrink-0 px-[2px]"
+      className={`flex-shrink-0 ${isFirst ? 'pr-[2px]' : isLast ? 'pl-[2px]' : 'px-[2px]'}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -128,6 +128,9 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
               showVideo && videoSrc ? "opacity-0" : "opacity-100"
             }`}
             sizes={`${widthPercent}vw`}
+            onContextMenu={(e) => e.preventDefault()}
+            onDragStart={(e) => e.preventDefault()}
+            style={{ WebkitTouchCallout: "none", userSelect: "none" }}
           />
         )}
 

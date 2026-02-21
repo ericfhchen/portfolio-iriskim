@@ -1,10 +1,5 @@
 import "./globals.css";
 
-export const metadata = {
-  title: "Iris Kim",
-  description: "Portfolio",
-};
-
 export const viewport = {
   width: "device-width",
   initialScale: 1,

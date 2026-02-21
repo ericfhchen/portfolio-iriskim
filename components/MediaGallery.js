@@ -361,6 +361,9 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                     alt={project.title}
                     fill
                     className={`object-contain ${isMobile ? 'object-center' : 'object-left-top'}`}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onDragStart={(e) => e.preventDefault()}
+                    style={{ WebkitTouchCallout: "none", userSelect: "none" }}
                     onLoad={
                       layer.zIndex === 1
                         ? () => handleLayerReady(layer.id)
@@ -430,6 +433,9 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                       className="h-full w-auto object-cover"
                       onLoad={handleThumbnailLoad}
                       onError={handleThumbnailLoad}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onDragStart={(e) => e.preventDefault()}
+                      style={{ WebkitTouchCallout: "none", userSelect: "none" }}
                     />
                   </button>
                   {mediaLabel && (

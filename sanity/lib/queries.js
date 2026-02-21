@@ -34,6 +34,7 @@ export const projectDetailQuery = `*[_type == "project" && slug.current == $slug
   tileSize,
   projectCode,
   coverImage,
+  "coverImageUrl": coverImage.asset->url,
   media[] {
     _type,
     _key,
@@ -61,5 +62,10 @@ export const siteSettingsQuery = `*[_type == "siteSettings"][0] {
       }
     },
     hotspot
-  }
+  },
+  siteUrl,
+  metaTitle,
+  metaDescription,
+  "ogImageUrl": ogImage.asset->url,
+  "faviconUrl": favicon.asset->url
 }`;

@@ -23,7 +23,7 @@ export default function ProjectGrid({ projects, onProjectClick, onProjectHover }
     <div className="w-full flex flex-col gap-6" data-rendered-width={windowWidth || 375}>
       {rows.map((row, rowIndex) => (
         <div key={rowIndex} className="flex items-start w-full">
-          {row.tiles.map((tile) => (
+          {row.tiles.map((tile, tileIndex) => (
             <GridTile
               key={tile.project._id}
               project={tile.project}
@@ -31,6 +31,8 @@ export default function ProjectGrid({ projects, onProjectClick, onProjectHover }
               aspectRatio={tile.aspectRatio}
               onClick={onProjectClick}
               onHover={onProjectHover}
+              isFirst={tileIndex === 0}
+              isLast={tileIndex === row.tiles.length - 1}
             />
           ))}
         </div>

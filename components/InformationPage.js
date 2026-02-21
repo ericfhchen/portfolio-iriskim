@@ -183,10 +183,14 @@ export default function InformationPage({ settings }) {
             alt={settings?.name || ""}
             width={imageWidth}
             height={imageHeight}
+            onContextMenu={(e) => e.preventDefault()}
+            onDragStart={(e) => e.preventDefault()}
             style={{
               width: "100%",
               height: "auto",
               display: "block",
+              WebkitTouchCallout: "none",
+              userSelect: "none",
             }}
             priority
           />
