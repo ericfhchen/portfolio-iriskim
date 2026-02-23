@@ -59,8 +59,10 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   const [isReady, setIsReady] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isMobileView, setIsMobileView] = useState(false);
+  const [detectedAspectRatio, setDetectedAspectRatio] = useState(null);
   const hideControlsTimeout = useRef(null);
   const hlsRef = useRef(null);
+  const aspectRatioDetectedRef = useRef(false);
 
   // Track mobile status for layout
   useEffect(() => {
@@ -74,13 +76,45 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       : aspectRatio
     : null;
 
+  // Detect aspect ratio from video metadata if Sanity data is missing
+  // This prevents videos with null aspectRatio from overflowing
+  const finalAspectRatio = parsedAspectRatio || detectedAspectRatio;
+
   const src = `https://stream.mux.com/${playbackId}.m3u8`;
   const poster = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=0`;
 
-  // Preload poster image and fire onReady callback when it loads
-  // This ensures smooth transitions - poster is visible before video stream loads
+  // Detect aspect ratio from video element's intrinsic size
+  // Fires when video metadata loads, giving us videoWidth/videoHeight
+  // Only sets detected ratio if Sanity data is missing (parsedAspectRatio is null)
+  // Detect aspect ratio from video metadata if Sanity data is missing
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || parsedAspectRatio || aspectRatioDetectedRef.current) return;
+
+    const handleLoadedMetadata = () => {
+      if (video.videoWidth && video.videoHeight && !aspectRatioDetectedRef.current) {
+        const ratio = video.videoWidth / video.videoHeight;
+        setDetectedAspectRatio(ratio);
+        aspectRatioDetectedRef.current = true;
+      }
+    };
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    return () => video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+  }, [parsedAspectRatio]);
+
+  // Preload poster image and fire onReady callback when BOTH poster AND aspect ratio are ready
+  // If aspect ratio needs to be detected from video metadata, wait for that before fading in
   useEffect(() => {
     if (!onReadyCallbackRef.current) return;
+
+    // If Sanity data is missing (parsedAspectRatio is null), we MUST wait for metadata detection
+    const mustWaitForDetection = !parsedAspectRatio;
+
+    // If we need to detect aspect ratio but haven't yet, defer firing ready until detected
+    if (mustWaitForDetection && !finalAspectRatio) {
+      return;
+    }
 
     const img = new window.Image();
     img.onload = () => {
@@ -91,7 +125,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       onReadyCallbackRef.current?.();
     };
     img.src = poster;
-  }, [poster]);
+  }, [poster, finalAspectRatio, parsedAspectRatio]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -376,8 +410,9 @@ const VideoPlayer = forwardRef(function VideoPlayer({
 
   // Always apply aspect ratio sizing if available (not just before ready)
   // But NOT in fullscreen mode - let video fill the screen
-  if (!isFullscreen && parsedAspectRatio) {
-    wrapperStyle.aspectRatio = parsedAspectRatio;
+  // Use finalAspectRatio which includes both Sanity data AND detected ratio from video metadata
+  if (!isFullscreen && finalAspectRatio) {
+    wrapperStyle.aspectRatio = finalAspectRatio;
     // Use maxHeight instead of height so wrapper sizes to video's intrinsic size
     // but never exceeds container. This fixes: top-alignment, controls positioning,
     // and prevents whitespace clicks from triggering play/pause
