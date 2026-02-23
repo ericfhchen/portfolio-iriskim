@@ -76,48 +76,27 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       : aspectRatio
     : null;
 
-  // Detect aspect ratio from video metadata if Sanity data is missing
-  // This prevents videos with null aspectRatio from overflowing
+  // finalAspectRatio: prefer Sanity data, fall back to poster-detected ratio
   const finalAspectRatio = parsedAspectRatio || detectedAspectRatio;
 
   const src = `https://stream.mux.com/${playbackId}.m3u8`;
   const poster = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=0`;
 
-  // Detect aspect ratio from video element's intrinsic size
-  // Fires when video metadata loads, giving us videoWidth/videoHeight
-  // Only sets detected ratio if Sanity data is missing (parsedAspectRatio is null)
-  // Detect aspect ratio from video metadata if Sanity data is missing
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || parsedAspectRatio || aspectRatioDetectedRef.current) return;
-
-    const handleLoadedMetadata = () => {
-      if (video.videoWidth && video.videoHeight && !aspectRatioDetectedRef.current) {
-        const ratio = video.videoWidth / video.videoHeight;
-        setDetectedAspectRatio(ratio);
-        aspectRatioDetectedRef.current = true;
-      }
-    };
-
-    video.addEventListener("loadedmetadata", handleLoadedMetadata);
-    return () => video.removeEventListener("loadedmetadata", handleLoadedMetadata);
-  }, [parsedAspectRatio]);
-
-  // Preload poster image and fire onReady callback when BOTH poster AND aspect ratio are ready
-  // If aspect ratio needs to be detected from video metadata, wait for that before fading in
+  // Preload poster image. If Sanity aspect ratio is missing, detect it from the poster's
+  // natural dimensions — the poster frame has the same aspect ratio as the video.
+  // This ensures the wrapper is correctly sized BEFORE onReady fires the fade-in,
+  // and works for all layers including the crossfade layer (allowAutoPlay=false).
   useEffect(() => {
     if (!onReadyCallbackRef.current) return;
 
-    // If Sanity data is missing (parsedAspectRatio is null), we MUST wait for metadata detection
-    const mustWaitForDetection = !parsedAspectRatio;
-
-    // If we need to detect aspect ratio but haven't yet, defer firing ready until detected
-    if (mustWaitForDetection && !finalAspectRatio) {
-      return;
-    }
-
     const img = new window.Image();
     img.onload = () => {
+      // Detect aspect ratio from poster if Sanity data is missing
+      if (!parsedAspectRatio && !aspectRatioDetectedRef.current && img.naturalWidth && img.naturalHeight) {
+        const ratio = img.naturalWidth / img.naturalHeight;
+        setDetectedAspectRatio(ratio);
+        aspectRatioDetectedRef.current = true;
+      }
       onReadyCallbackRef.current?.();
     };
     img.onerror = () => {
@@ -125,7 +104,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       onReadyCallbackRef.current?.();
     };
     img.src = poster;
-  }, [poster, finalAspectRatio, parsedAspectRatio]);
+  }, [poster, parsedAspectRatio]);
 
   useEffect(() => {
     const video = videoRef.current;
