@@ -14,6 +14,31 @@ export default function SidebarClient({ artistName, projects }) {
   const projectsButtonRef = useRef(null);
   const [projectsButtonLeft, setProjectsButtonLeft] = useState(0);
 
+  // Lock body scroll and hide content when overlay is open
+  useEffect(() => {
+    if (overlayOpen) {
+      // Save current scroll position
+      const scrollY = window.scrollY;
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.width = '100%';
+      document.body.dataset.scrollY = scrollY;
+    } else {
+      // Restore scroll position
+      const scrollY = document.body.dataset.scrollY || 0;
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+      window.scrollTo(0, parseInt(scrollY));
+    }
+  }, [overlayOpen]);
+
   useEffect(() => {
     if (overlayOpen && projectsButtonRef.current) {
       setProjectsButtonLeft(projectsButtonRef.current.getBoundingClientRect().left);
@@ -97,7 +122,7 @@ export default function SidebarClient({ artistName, projects }) {
   return (
     <>
       {/* Mobile header - hidden on desktop via CSS */}
-      <header className="hidden max-sm:flex fixed top-0 left-0 right-0 z-40 p-2 flex-row items-center gap-6" style={{
+      <header className="nav-text hidden max-sm:flex fixed top-0 left-0 right-0 z-40 p-2 flex-row items-center gap-6" style={{
         willChange: "transform",
         transform: "translateZ(0)",
         contain: "layout style paint",
@@ -132,9 +157,14 @@ export default function SidebarClient({ artistName, projects }) {
 
       {/* Mobile overlay - hidden on desktop via CSS */}
       <div
-        className="hidden max-sm:flex fixed inset-0 z-[110] flex-col"
+        className="nav-text hidden max-sm:flex fixed z-[110] flex-col"
         onClick={() => setOverlayOpen(false)}
         style={{
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 'calc(-100px - env(safe-area-inset-bottom, 0px))',  // Extend past viewport into Safari safe area
+          paddingBottom: 'calc(100px + env(safe-area-inset-bottom, 0px))',  // Compensate so content doesn't shift
           backgroundColor: "rgba(255, 255, 255, 0.9)",
           opacity: overlayOpen ? 1 : 0,
           pointerEvents: overlayOpen ? "auto" : "none",
@@ -197,7 +227,7 @@ export default function SidebarClient({ artistName, projects }) {
       </div>
 
       {/* Desktop sidebar - hidden on mobile via CSS */}
-      <nav className="flex max-sm:hidden fixed top-0 left-0 h-screen w-1/6 p-4 pr-0 flex-col gap-8 overflow-y-auto">
+      <nav className="nav-text flex max-sm:hidden fixed top-0 left-0 h-screen w-1/6 p-4 pr-0 flex-col gap-8 overflow-y-auto">
         <div className="flex flex-row gap-8">
           <Link
             href="/"

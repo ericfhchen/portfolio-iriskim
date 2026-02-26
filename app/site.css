@@ -5,7 +5,6 @@
 }
 
 html, body {
-  background: #ffffff;
   color: #000000;
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 9px;
@@ -15,4 +14,12 @@ html, body {
 h1, h2, h3, h4, h5, h6, p, a, span, li, label, input, button, div {
   font-size: 9px;
   line-height: 1;
+}
+
+.nav-text,
+.nav-text a,
+.nav-text span,
+.nav-text button,
+.nav-text li {
+  font-size: 10px;
 }
