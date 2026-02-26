@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { PortableText } from "@portabletext/react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import FinalResearchCredit from "./FinalResearchCredit";
 
 const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
 
@@ -217,6 +218,20 @@ export default function InformationPage({ settings }) {
           {contactLinks ? (
             <PortableText value={contactLinks} components={portableTextComponents} />
           ) : null}
+        </div>
+
+      </div>
+
+      {/* Credit row — same column structure so it left-aligns under bio */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr" : isShortViewport ? "2fr 2fr 1fr" : "1fr 1fr 2fr",
+          gap: isMobile ? "1rem" : "3rem",
+        }}
+      >
+        <div>
+          <FinalResearchCredit />
         </div>
       </div>
     </div>
