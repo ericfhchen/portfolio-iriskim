@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, useMemo } from "react";
 import Image from "next/image";
 import { urlFor } from "@/sanity/lib/image";
 import VideoPlayer from "./VideoPlayer";
@@ -358,7 +358,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                     src={urlFor(item).width(1400).quality(90).url()}
                     alt={project.title}
                     fill
-                    className={`object-contain ${isMobile ? 'object-center' : 'object-left-top'}`}
+                    className={`object-contain ${isMobile ? 'object-left' : 'object-left-top'}`}
                     onContextMenu={(e) => e.preventDefault()}
                     onDragStart={(e) => e.preventDefault()}
                     style={{ WebkitTouchCallout: "none", userSelect: "none" }}
@@ -403,38 +403,77 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
               const height = thumbnailHeights[index % thumbnailHeights.length];
               const isActive = index === activeIndex;
 
-              let thumbSrc;
-              if (item._type === "image") {
-                thumbSrc = urlFor(item).height(height * 2).quality(60).url();
-              } else if (item._type === "mux.video" && item.playbackId) {
-                thumbSrc = `https://image.mux.com/${item.playbackId}/thumbnail.jpg?height=${height * 2}&time=0`;
-              }
-
-              if (!thumbSrc) return null;
-
               const mediaLabel = project.projectCode
                 ? `${project.projectCode}_${String(index + 1).padStart(2, "0")}`
                 : null;
 
+              // Calculate label width: icon + gap + text
+              // Icon: 8px (image) or 6px (video), Gap: 4px (gap-1), Text: ~6.5px per char at text-xs
+              // Parse aspectRatio: number (Sanity images), string "W:H" (Mux videos), or undefined
+              let aspectRatio = 1;
+              if (typeof item.aspectRatio === 'number') {
+                aspectRatio = item.aspectRatio;
+              } else if (typeof item.aspectRatio === 'string' && item.aspectRatio.includes(':')) {
+                const [w, h] = item.aspectRatio.split(':').map(Number);
+                if (w && h) aspectRatio = w / h;
+              }
+              const calculatedWidth = height * aspectRatio;
+              const iconWidth = item._type === "mux.video" ? 6 : 8;
+              const gap = 4;
+              const textWidth = mediaLabel ? mediaLabel.length * 6.5 : 0;
+              const minThumbnailWidth = mediaLabel ? iconWidth + gap + textWidth : 0;
+
+              // Only apply minWidth if thumbnail is narrower than label
+              const needsMinWidth = mediaLabel && calculatedWidth < minThumbnailWidth;
+
+              let thumbSrc;
+              if (item._type === "image") {
+                // When needsMinWidth, request wider image to prevent blur from CSS stretching
+                // Use 3x multiplier for 3x DPR devices, quality(80) matches GridTile
+                if (needsMinWidth) {
+                  thumbSrc = urlFor(item).height(height * 3).width(Math.ceil(minThumbnailWidth * 3)).quality(80).url();
+                } else {
+                  thumbSrc = urlFor(item).height(height * 3).quality(80).url();
+                }
+              } else if (item._type === "mux.video" && item.playbackId) {
+                if (needsMinWidth) {
+                  thumbSrc = `https://image.mux.com/${item.playbackId}/thumbnail.jpg?height=${height * 3}&width=${Math.ceil(minThumbnailWidth * 3)}&time=0`;
+                } else {
+                  thumbSrc = `https://image.mux.com/${item.playbackId}/thumbnail.jpg?height=${height * 3}&time=0`;
+                }
+              }
+
+              if (!thumbSrc) return null;
+
               return (
-                <div key={item._key || index} className="flex flex-col items-start flex-shrink-0">
+                <div
+                  key={item._key || index}
+                  className="flex flex-col items-start flex-shrink-0"
+                >
                   <button
                     onClick={() => handleThumbnailClick(index)}
-                    className={`relative flex-shrink-0 cursor-pointer border-0 p-0 ${
+                    className={`relative flex-shrink-0 cursor-pointer border-0 p-0 flex items-center justify-center ${
                       isActive ? "opacity-100" : "opacity-100 hover:opacity-50"
                     }`}
-                    style={{ height: `${height}px` }}
+                    style={{
+                      height: `${height}px`,
+                      ...(needsMinWidth && { minWidth: `${minThumbnailWidth}px` })
+                    }}
                   >
                     <img
                       src={thumbSrc}
                       alt={`Thumbnail ${index + 1}`}
-                      className="h-full w-auto object-cover"
+                      className={needsMinWidth ? "h-full object-cover" : "h-full w-auto"}
                       decoding="async"
                       onLoad={handleThumbnailLoad}
                       onError={handleThumbnailLoad}
                       onContextMenu={(e) => e.preventDefault()}
                       onDragStart={(e) => e.preventDefault()}
-                      style={{ WebkitTouchCallout: "none", userSelect: "none" }}
+                      style={{
+                        WebkitTouchCallout: "none",
+                        userSelect: "none",
+                        ...(needsMinWidth && { width: `${minThumbnailWidth}px` })
+                      }}
                     />
                   </button>
                   {mediaLabel && (
