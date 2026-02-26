@@ -239,7 +239,14 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     const video = videoRef.current;
     if (!video || !isReady || !autoPlay || !allowAutoPlay || hasAutoPlayed) return;
 
-    video.play().catch(() => {});
+    // Set isPlaying true synchronously to prevent brief "play" button flash on mobile.
+    // The onPlay event would set this too, but there's a gap between calling play()
+    // and the browser firing onPlay that's visible on slower mobile devices.
+    setIsPlaying(true);
+    video.play().catch(() => {
+      // If play fails (e.g., blocked by browser), revert state
+      setIsPlaying(false);
+    });
     setHasAutoPlayed(true);
   }, [isReady, autoPlay, allowAutoPlay, hasAutoPlayed]);
 
@@ -441,7 +448,8 @@ const VideoPlayer = forwardRef(function VideoPlayer({
         />
 
         {/* Controls overlay - positioned at bottom of the inline-block wrapper */}
-        {isReady && (
+        {/* Gate on hasAutoPlayed when autoplay is expected to prevent "play" button flash */}
+        {isReady && (!autoPlay || !allowAutoPlay || hasAutoPlayed) && (
           <div
             style={{
               position: "absolute",
