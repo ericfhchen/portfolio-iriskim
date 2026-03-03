@@ -50,6 +50,10 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   // Chrome iOS returns inconsistent values during momentum scrolling, causing flicker
   const thumbnailBottomRef = useRef(null);
 
+  // For single-media projects (no thumbnail row), cache main display bottom as fallback
+  const mainDisplayRef = useRef(null);
+  const mainDisplayBottomRef = useRef(null);
+
   const handleThumbnailLoad = useCallback(() => {
     loadedCountRef.current += 1;
     if (loadedCountRef.current >= totalThumbnails) {
@@ -73,7 +77,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     resumeVideo: () => {
       videoPlayerRef.current?.resume();
     },
-    getThumbnailBottom: () => thumbnailBottomRef.current,
+    getThumbnailBottom: () => thumbnailBottomRef.current ?? mainDisplayBottomRef.current,
   }), []);
 
   // Fade in initial layer on mount - wait for thumbnails and initial media
@@ -236,6 +240,24 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     };
   }, [thumbnailsReady]); // Recalculate when thumbnails finish loading
 
+  // Cache main display bottom position for single-media projects (no thumbnail row)
+  useEffect(() => {
+    const updateMainDisplayBottom = () => {
+      if (mainDisplayRef.current) {
+        const bottom = mainDisplayRef.current.getBoundingClientRect().bottom;
+        if (bottom > 100) {
+          mainDisplayBottomRef.current = bottom;
+        }
+      }
+    };
+    const timer = setTimeout(updateMainDisplayBottom, 100);
+    window.addEventListener('resize', updateMainDisplayBottom);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', updateMainDisplayBottom);
+    };
+  }, [initialMediaReady]);
+
   // Update scroll state when thumbnails finish loading
   useEffect(() => {
     if (thumbnailsReady) {
@@ -319,7 +341,9 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
 
       {/* Main display area with dual-layer crossfade - flex-1 to fill available space */}
       <div
+        ref={mainDisplayRef}
         className="relative w-full flex-1 min-h-0"
+        style={{ overflow: 'hidden' }}
       >
         {layers.map((layer) => {
           const item = media[layer.index];
