@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useLayoutEffect } from "react";
 import { buildGridRows } from "@/lib/gridLayout";
 import GridTile from "./GridTile";
 
 export default function ProjectGrid({ projects, onProjectClick, onProjectHover }) {
   const [windowWidth, setWindowWidth] = useState(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     handleResize();
     window.addEventListener("resize", handleResize);

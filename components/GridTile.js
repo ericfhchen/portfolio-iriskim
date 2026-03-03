@@ -12,6 +12,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
   const tileRef = useRef(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
 
   const { hoveredProject, hoverSource, isHoverLocked, setTileHover, clearHover } = useHover();
   const isMobile = useIsMobile();
@@ -33,7 +34,13 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
     if (!el || !videoSrc) return;
 
     const observer = new IntersectionObserver(
-      ([entry]) => setIsNearViewport(entry.isIntersecting),
+      ([entry]) => {
+        setIsNearViewport(entry.isIntersecting);
+        if (!entry.isIntersecting && videoRef.current && !videoRef.current.paused) {
+          videoRef.current.pause();
+          setVideoReady(false);
+        }
+      },
       { rootMargin: "200px" }
     );
     observer.observe(el);
@@ -52,11 +59,15 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch(() => {});
+      if (videoRef.current.readyState >= 2) {
+        setVideoReady(true);
+      }
     }
   };
 
   const handleMouseLeave = () => {
     setIsHovering(false);
+    setVideoReady(false);
     clearHover();
     if (videoRef.current) {
       videoRef.current.pause();
@@ -69,11 +80,36 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
     if (shouldAutoplay && videoRef.current) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch(() => {});
+      if (videoRef.current.readyState >= 2) {
+        setVideoReady(true);
+      }
     } else if (!shouldAutoplay && !isHovering && videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
+      setVideoReady(false);
     }
   }, [shouldAutoplay, isHovering]);
+
+  // Track video readiness via event listeners
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const onReady = () => setVideoReady(true);
+
+    // If already buffered (preload finished before hover)
+    if (video.readyState >= 2) {
+      setVideoReady(true);
+    }
+
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("canplay", onReady);
+
+    return () => {
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("canplay", onReady);
+    };
+  }, [videoSrc]);
 
   const handleClick = (e) => {
     if (onClick) {
@@ -87,7 +123,9 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
     : null;
 
   // Show video when this tile is hovered OR when sidebar hovers this project
-  const showVideo = isHovering || shouldAutoplay;
+  // Gate on videoReady so cover image stays visible until first frame is decoded
+  const wantVideo = isHovering || shouldAutoplay;
+  const showVideo = wantVideo && videoReady;
   // Show title when this tile is hovered OR when sidebar highlights this project
   const showTitle = isHovering || isThisHovered;
 
@@ -124,7 +162,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
             src={imageUrl}
             alt={project.title}
             fill
-            className={`object-cover transition-opacity duration-300 ${
+            className={`object-cover transition-opacity duration-150 ${
               showVideo && videoSrc ? "opacity-0" : "opacity-100"
             }`}
             sizes={`${widthPercent}vw`}
@@ -134,15 +172,15 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
           />
         )}
 
-        {videoSrc && isNearViewport && (
+        {videoSrc && (
           <video
             ref={videoRef}
             src={videoSrc}
             muted
             loop
             playsInline
-            preload="none"
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+            preload={isNearViewport ? "auto" : "none"}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${
               showVideo ? "opacity-100" : "opacity-0"
             }`}
           />

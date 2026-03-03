@@ -227,10 +227,23 @@ export default function PortfolioShell({ projects, initialProject, initialInform
         requestAnimationFrame(attemptCalculation);
         return;
       }
-      // Only calculate if width is ready; if we exhausted retries without widthReady,
-      // skip and let the resize event trigger a recalculation later
-      if (widthReady || rowElements.length >= neededRows) {
+      // Only calculate if width is ready AND we have enough rows
+      if (widthReady && rowElements.length >= neededRows) {
         calculatePadding(true);
+      } else {
+        // Fallback: make grid visible so it doesn't stay hidden forever,
+        // then keep polling until width is ready for an accurate calculation
+        setIsPaddingReady(true);
+        const deferredCheck = () => {
+          const rc = gridRef.current?.querySelector('.w-full.flex.flex-col');
+          const rw = rc ? parseInt(rc.dataset.renderedWidth || '0', 10) : 0;
+          if (rw === window.innerWidth) {
+            calculatePadding(true);
+          } else {
+            requestAnimationFrame(deferredCheck);
+          }
+        };
+        requestAnimationFrame(deferredCheck);
       }
     };
     // Wait for React hydration cycle to complete before calculating
