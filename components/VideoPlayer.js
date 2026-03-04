@@ -2,12 +2,25 @@
 
 import { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 
+// Detect Safari (desktop + iOS) for native HLS playback.
+// Native HLS is faster than hls.js + MSE on Safari because Safari's MSE
+// implementation is slower than its hardware-accelerated native HLS pipeline.
+// Chrome on macOS also returns "maybe" for canPlayType HLS, but we want
+// hls.js there for quality pinning — so we check navigator.vendor too.
+export const useNativeHLS = (() => {
+  if (typeof navigator === "undefined" || typeof document === "undefined") return false;
+  const isSafari = navigator.vendor === "Apple Computer, Inc.";
+  const canPlayHLS = !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
+  return isSafari && canPlayHLS;
+})();
+
 // Preload hls.js on module load so it's parsed before any project click.
 // This avoids ~1.1MB of JS parsing during the gallery-fading-in animation.
-const hlsModulePromise = import("hls.js");
+// Skip entirely on Safari — native HLS is faster than hls.js + MSE there.
+const hlsModulePromise = useNativeHLS ? null : import("hls.js");
 
 // Check if device is mobile (used for quality cap)
-function isMobile() {
+export function isMobile() {
   if (typeof window === "undefined") return false;
   return window.innerWidth <= 768 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
@@ -21,14 +34,17 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   onPrevItem,
   onNextItem,
   onReady: onReadyCallback,
+  onCanPlay,
 }, ref) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Store callback in ref to avoid re-running effect when callback changes
+  // Store callbacks in ref to avoid re-running effect when callback changes
   const onReadyCallbackRef = useRef(onReadyCallback);
   onReadyCallbackRef.current = onReadyCallback;
+  const onCanPlayRef = useRef(onCanPlay);
+  onCanPlayRef.current = onCanPlay;
 
   // Track if video was playing before an external pause (for resume logic)
   const wasPlayingBeforePauseRef = useRef(false);
@@ -86,11 +102,15 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   // natural dimensions — the poster frame has the same aspect ratio as the video.
   // This ensures the wrapper is correctly sized BEFORE onReady fires the fade-in,
   // and works for all layers including the crossfade layer (allowAutoPlay=false).
+  const mountTimeRef = useRef(performance.now());
   useEffect(() => {
     if (!onReadyCallbackRef.current) return;
 
+    const t0 = performance.now();
+    console.log(`[Debug][VP:${playbackId?.slice(-6)}] poster load start, allowAutoPlay=${allowAutoPlay}`);
     const img = new window.Image();
     img.onload = () => {
+      console.log(`[Debug][VP:${playbackId?.slice(-6)}] poster loaded in ${(performance.now() - t0).toFixed(0)}ms`);
       // Detect aspect ratio from poster if Sanity data is missing
       if (!parsedAspectRatio && !aspectRatioDetectedRef.current && img.naturalWidth && img.naturalHeight) {
         const ratio = img.naturalWidth / img.naturalHeight;
@@ -100,6 +120,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       onReadyCallbackRef.current?.();
     };
     img.onerror = () => {
+      console.log(`[Debug][VP:${playbackId?.slice(-6)}] poster FAILED in ${(performance.now() - t0).toFixed(0)}ms`);
       // Still fire ready on error so transition doesn't hang
       onReadyCallbackRef.current?.();
     };
@@ -116,29 +137,45 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     // Handler for when video has enough data to play
     // Listen for both 'canplay' and 'canplaythrough' - Safari sometimes fires
     // 'canplay' but delays 'canplaythrough', causing the video to stay invisible
+    const hlsStartTime = performance.now();
     const handleReady = () => {
+      console.log(`[Debug][VP:${playbackId?.slice(-6)}] canplay/canplaythrough fired @ +${(performance.now() - hlsStartTime).toFixed(0)}ms after HLS init, +${(performance.now() - mountTimeRef.current).toFixed(0)}ms after mount`);
       setIsReady(true);
+      onCanPlayRef.current?.();
     };
     video.addEventListener("canplaythrough", handleReady);
     video.addEventListener("canplay", handleReady);
 
-    // Use hls.js for ALL browsers to force highest quality
-    // Safari's native HLS uses ABR and doesn't allow forcing quality
-    // hls.js works in Safari and gives us control over quality selection
-    let hls;
-    let targetLevel = -1;
+    // Safari: native HLS pipeline (faster than hls.js + MSE)
+    // min_resolution excludes low renditions so ABR starts at acceptable quality
+    if (useNativeHLS) {
+      const params = mobile
+        ? '?min_resolution=480p&max_resolution=1080p'
+        : '?min_resolution=720p&max_resolution=1440p';
+      console.log(`[Debug][VP:${playbackId?.slice(-6)}] native HLS starting @ +${(performance.now() - mountTimeRef.current).toFixed(0)}ms after mount, params=${params}`);
+      video.src = src + params;
+      video.load();
 
-    // Defer HLS loading until allowAutoPlay is true (animation phase === 'ready').
-    // The poster image loads independently, so the user sees it during the fade-in
-    // while avoiding ~2s of HLS main-thread work during the animation.
-    if (!allowAutoPlay) {
       return () => {
         video.removeEventListener("canplaythrough", handleReady);
         video.removeEventListener("canplay", handleReady);
+        video.src = "";
+        video.load();
       };
     }
 
+    // Chrome/Firefox: use hls.js for quality control
+    let targetLevel = -1;
+    let cancelled = false;
+
+    // Start HLS immediately on mount — don't wait for allowAutoPlay.
+    // The poster loads independently for the visual fade-in, while HLS
+    // loads manifest + buffers in the background. The autoplay effect
+    // (below) still gates video.play() on allowAutoPlay.
+    console.log(`[Debug][VP:${playbackId?.slice(-6)}] HLS init starting @ +${(performance.now() - mountTimeRef.current).toFixed(0)}ms after mount`);
     hlsModulePromise.then((HlsModule) => {
+      if (cancelled) return; // Don't create HLS if unmounted
+
       const Hls = HlsModule.default;
 
       // Fallback to native HLS for browsers that don't support hls.js (e.g., Safari on iOS)
@@ -151,7 +188,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
         return;
       }
 
-      hls = new Hls({
+      const hls = new Hls({
         // Don't auto-start loading - we control when to start
         autoStartLoad: false,
         // Don't cap based on player size - we want full quality
@@ -168,9 +205,12 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       });
       hlsRef.current = hls;
 
+      console.log(`[Debug][VP:${playbackId?.slice(-6)}] hls.js module resolved @ +${(performance.now() - hlsStartTime).toFixed(0)}ms`);
+
       hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
         const levels = data.levels;
         targetLevel = levels.length - 1; // Highest quality
+        console.log(`[Debug][VP:${playbackId?.slice(-6)}] MANIFEST_PARSED: ${levels.length} levels, target=${targetLevel} (${levels[targetLevel]?.height}p) @ +${(performance.now() - hlsStartTime).toFixed(0)}ms`);
 
         if (mobile) {
           // Find highest level at or below 1440p
@@ -214,6 +254,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
         if (data.fatal) {
           console.error("[VideoPlayer] Fatal HLS error:", data.type, data.details);
           hls.destroy();
+          hlsRef.current = null;
           // Fall back to native HLS for Safari
           if (video.canPlayType("application/vnd.apple.mpegurl")) {
             video.src = src;
@@ -228,22 +269,35 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     });
 
     return () => {
+      cancelled = true;
       video.removeEventListener("canplaythrough", handleReady);
       video.removeEventListener("canplay", handleReady);
-      if (hls) hls.destroy();
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
     };
-  }, [playbackId, src, allowAutoPlay]);
+  }, [playbackId, src]);
 
   // Autoplay with sound when autoPlay prop is true, video is ready, and allowed
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !isReady || !autoPlay || !allowAutoPlay || hasAutoPlayed) return;
+    if (!video || !isReady || !autoPlay || !allowAutoPlay || hasAutoPlayed) {
+      if (video) {
+        console.log(`[Debug][VP:${playbackId?.slice(-6)}] autoplay check: isReady=${isReady}, autoPlay=${autoPlay}, allowAutoPlay=${allowAutoPlay}, hasAutoPlayed=${hasAutoPlayed} → SKIP @ +${(performance.now() - mountTimeRef.current).toFixed(0)}ms`);
+      }
+      return;
+    }
 
+    console.log(`[Debug][VP:${playbackId?.slice(-6)}] autoplay FIRING @ +${(performance.now() - mountTimeRef.current).toFixed(0)}ms after mount`);
     // Set isPlaying true synchronously to prevent brief "play" button flash on mobile.
     // The onPlay event would set this too, but there's a gap between calling play()
     // and the browser firing onPlay that's visible on slower mobile devices.
     setIsPlaying(true);
-    video.play().catch(() => {
+    video.play().then(() => {
+      console.log(`[Debug][VP:${playbackId?.slice(-6)}] play() succeeded @ +${(performance.now() - mountTimeRef.current).toFixed(0)}ms`);
+    }).catch((err) => {
+      console.log(`[Debug][VP:${playbackId?.slice(-6)}] play() FAILED: ${err.message} @ +${(performance.now() - mountTimeRef.current).toFixed(0)}ms`);
       // If play fails (e.g., blocked by browser), revert state
       setIsPlaying(false);
     });

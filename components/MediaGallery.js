@@ -32,6 +32,13 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   const media = project?.media || [];
   const [activeIndex, setActiveIndex] = useState(0);
   const isMobile = useIsMobile();
+  const mgMountTime = useRef(performance.now());
+  const [mainVideoCanPlay, setMainVideoCanPlay] = useState(false);
+  const handleMainVideoCanPlay = useCallback(() => {
+    console.log(`[Debug][MG] mainVideoCanPlay signal @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
+    setMainVideoCanPlay(true);
+  }, []);
+  console.log(`[Debug][MG] mount slug=${project?.slug?.current}, mediaCount=${media.length}, allowAutoPlay=${allowAutoPlay}`);
   // Note: Parent uses key={slug} so component remounts on project change - no manual reset needed
 
   // Dual-layer crossfade system
@@ -56,15 +63,47 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
 
   const handleThumbnailLoad = useCallback(() => {
     loadedCountRef.current += 1;
+    console.log(`[Debug][MG] thumbnail loaded ${loadedCountRef.current}/${totalThumbnails} @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
     if (loadedCountRef.current >= totalThumbnails) {
+      console.log(`[Debug][MG] ALL thumbnails ready @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
       setThumbnailsReady(true);
     }
   }, [totalThumbnails]);
 
   // Called when the initial (index 0) image/video loads
   const handleInitialMediaReady = useCallback(() => {
+    console.log(`[Debug][MG] initialMediaReady (poster/image loaded) @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
     setInitialMediaReady(true);
-  }, []);
+    // If first item is NOT a video, also set mainVideoCanPlay so prefetches aren't blocked
+    if (media[0]?._type !== 'mux.video') {
+      setMainVideoCanPlay(true);
+    }
+  }, [media]);
+
+  // Prefetch HLS manifests for non-active video items so thumbnail clicks get cache hits.
+  // ADAPTIVE: wait for main video's canplay signal (first segment downloaded) + 500ms buffer,
+  // rather than a fixed delay that can interfere with the critical buffering window.
+  // For non-video first items, mainVideoCanPlay is set immediately in handleInitialMediaReady.
+  useEffect(() => {
+    if (!allowAutoPlay) return;
+    if (!mainVideoCanPlay) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      console.log(`[Debug][MG] prefetching HLS manifests @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
+      media.forEach((item, index) => {
+        if (index === 0) return; // Already loading via VideoPlayer
+        if (item._type === 'mux.video' && item.playbackId) {
+          fetch(`https://stream.mux.com/${item.playbackId}.m3u8`, { signal: controller.signal }).catch(() => {});
+        }
+      });
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [allowAutoPlay, mainVideoCanPlay]);
 
   // Ref to VideoPlayer for pause/resume control
   const videoPlayerRef = useRef(null);
@@ -80,32 +119,28 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     getThumbnailBottom: () => thumbnailBottomRef.current ?? mainDisplayBottomRef.current,
   }), []);
 
-  // Fade in initial layer on mount - wait for thumbnails and initial media
+  // Fade in initial layer on mount - only wait for initial media (poster/image)
+  // Thumbnails have their own independent fade-in via thumbnailOpacity
   useEffect(() => {
-    const fadeInInitial = () => {
+    if (!initialMediaReady) {
+      console.log(`[Debug][MG] fade-in BLOCKED: initialMediaReady=false @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
+      return;
+    }
+
+    console.log(`[Debug][MG] fade-in: initialMediaReady=true, firing in 50ms @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
+    const timer = setTimeout(() => {
+      console.log(`[Debug][MG] fadeInInitial → layer 0 opacity=1 @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
       setLayers(prev => prev.map(layer =>
         layer.index === 0 ? { ...layer, opacity: 1 } : layer
       ));
-    };
-
-    // Need initial media to be ready
-    if (!initialMediaReady) return;
-
-    // If no thumbnails, fade in after small delay
-    if (totalThumbnails === 0) {
-      const timer = setTimeout(fadeInInitial, 50);
-      return () => clearTimeout(timer);
-    }
-    // If thumbnails exist, wait for them to be ready
-    if (thumbnailsReady) {
-      const timer = setTimeout(fadeInInitial, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [thumbnailsReady, totalThumbnails, initialMediaReady]);
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [initialMediaReady]);
 
   // Handle layer ready (image loaded or video ready)
   // Old layer already faded out in startTransition, just fade in new layer
   const handleLayerReady = useCallback((layerId) => {
+    console.log(`[Debug][MG] handleLayerReady(id=${layerId}) → fade in crossfade layer @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
     // Fade in the new layer
     setLayers(prev => {
       const newLayer = prev.find(l => l.id === layerId);
@@ -120,6 +155,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
 
     // After fade in completes, clean up old layer
     setTimeout(() => {
+      console.log(`[Debug][MG] crossfade collapse: layer ${layerId} → zIndex=0, transitioning=false @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
       setLayers(prev => {
         const topLayer = prev.find(l => l.zIndex === 1);
         if (!topLayer) return prev;
@@ -134,6 +170,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     if (transitioningRef.current) return;
     if (targetIndex === activeIndex) return;
 
+    console.log(`[Debug][MG] startTransition: ${activeIndex} → ${targetIndex}, type=${media[targetIndex]?._type} @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
     transitioningRef.current = true;
     const newLayerId = layerIdRef.current++;
 
@@ -375,6 +412,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                       ? () => handleLayerReady(layer.id)
                       : layer.id === 0 ? handleInitialMediaReady : undefined
                   }
+                  onCanPlay={layer.zIndex === 0 && layer.id === 0 ? handleMainVideoCanPlay : undefined}
                 />
               ) : item._type === "image" ? (
                 <div className="relative w-full h-full">

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { freshClient } from "@/sanity/lib/client";
 import { projectDetailQuery } from "@/sanity/lib/queries";
 import { smoothScrollTo, materialEase } from "@/lib/easing";
+import { useNativeHLS, isMobile } from "@/components/VideoPlayer";
 
 const ProjectContext = createContext(null);
 
@@ -44,6 +45,10 @@ export function ProjectProvider({ children, projects }) {
 
   // Track when scrolling to same project (used to skip scroll handlers and enable CSS transition)
   const isSameProjectScrollingRef = useRef(false);
+
+  // Safari HLS prefetch: hidden <video> element to warm AVFoundation's pipeline
+  const prewarmedVideoRef = useRef(null);
+  const prewarmedPlaybackIdRef = useRef(null);
 
   // JS animation target - when set, PortfolioShell will animate padding via JS instead of CSS
   // { targetPadding: number, duration: number, onComplete: () => void } | null
@@ -160,12 +165,69 @@ export function ProjectProvider({ children, projects }) {
     }
   }, [searchParams, activeSlug, fetchProject]);
 
+  // Clean up a pre-warmed Safari video element
+  const cleanupPrewarmedVideo = useCallback(() => {
+    if (prewarmedVideoRef.current) {
+      prewarmedVideoRef.current.src = "";
+      prewarmedVideoRef.current.load();
+      prewarmedVideoRef.current = null;
+    }
+    prewarmedPlaybackIdRef.current = null;
+  }, []);
+
+  // Clean up prewarmed video when animation settles — gives VideoPlayer time to
+  // mount and benefit from Safari's cached manifests before we destroy the element
+  useEffect(() => {
+    if (animationPhase === 'ready' || animationPhase === 'idle') {
+      cleanupPrewarmedVideo();
+    }
+  }, [animationPhase, cleanupPrewarmedVideo]);
+
   // Prefetch a project on hover (fire-and-forget)
   const prefetchProject = useCallback((slug) => {
     if (!cacheRef.current[slug]) {
       fetchProject(slug);
+      return;
     }
-  }, [fetchProject]);
+
+    // Project already cached — prefetch first video's HLS manifest
+    const project = cacheRef.current[slug];
+    const firstVideo = project.media?.find(m => m._type === 'mux.video' && m.playbackId);
+    if (!firstVideo) return;
+
+    const { playbackId } = firstVideo;
+
+    // Skip if already pre-warming this exact playbackId
+    if (prewarmedPlaybackIdRef.current === playbackId) return;
+
+    if (useNativeHLS) {
+      // Safari: create a hidden <video> element to warm AVFoundation's HLS pipeline.
+      // fetch() goes through the browser's networking stack, but AVFoundation uses
+      // NSURLSession (a separate OS-level stack). Only a real <video> element triggers
+      // AVFoundation to do DNS → TCP+TLS → master manifest → rendition manifest → buffer.
+      // When the real VideoPlayer mounts with the same URL, AVFoundation reuses the
+      // warm NSURLSession connections and cached manifests.
+      cleanupPrewarmedVideo();
+
+      const mobile = isMobile();
+      const params = mobile
+        ? '?min_resolution=480p&max_resolution=1080p'
+        : '?min_resolution=720p&max_resolution=1440p';
+
+      const video = document.createElement('video');
+      video.preload = 'auto';
+      video.muted = true;
+      video.playsInline = true;
+      video.src = `https://stream.mux.com/${playbackId}.m3u8${params}`;
+      video.load();
+
+      prewarmedVideoRef.current = video;
+      prewarmedPlaybackIdRef.current = playbackId;
+    } else {
+      // Chrome/Firefox: fetch() warms the browser cache for hls.js
+      fetch(`https://stream.mux.com/${playbackId}.m3u8`).catch(() => {});
+    }
+  }, [fetchProject, cleanupPrewarmedVideo]);
 
   // Select a project or "information": update URL, fetch data if needed, animate sequence
   const selectProject = useCallback(async (slug) => {
@@ -187,6 +249,10 @@ export function ProjectProvider({ children, projects }) {
     if (animationPhase !== 'idle' && animationPhase !== 'ready') {
       return;
     }
+
+    // Don't clean up prewarmed video here — let it continue buffering during
+    // the 800ms grid animation so VideoPlayer gets Safari cache hits at mount.
+    // Cleanup happens when animationPhase reaches 'ready' (see effect below).
 
     const isInformation = slug === "information";
     const wasFromLanding = !activeSlug;
@@ -214,6 +280,9 @@ export function ProjectProvider({ children, projects }) {
 
       const targetUrl = isInformation ? `/?information` : `/?project=${slug}`;
 
+      const t0 = performance.now();
+      console.log(`[Debug] selectProject("${slug}") start, wasFromLanding=${wasFromLanding}`);
+
       if (wasFromLanding) {
         // FROM LANDING: Set active immediately, then animate
         setActiveSlug(slug);
@@ -222,6 +291,7 @@ export function ProjectProvider({ children, projects }) {
 
         // Start the grid animation phase (enables CSS transition on padding)
         setAnimationPhase('grid-animating');
+        console.log(`[Debug] phase → grid-animating @ +${(performance.now() - t0).toFixed(0)}ms`);
 
         // Scroll to top over 800ms while padding also transitions
         if (!isAtTop) {
@@ -231,15 +301,18 @@ export function ProjectProvider({ children, projects }) {
 
         // Then fade in gallery
         setAnimationPhase('gallery-fading-in');
+        console.log(`[Debug] phase → gallery-fading-in @ +${(performance.now() - t0).toFixed(0)}ms`);
         setIsSwitching(false);
         await new Promise(r => setTimeout(r, 300));
 
         setAnimationPhase('ready');
+        console.log(`[Debug] phase → ready @ +${(performance.now() - t0).toFixed(0)}ms`);
         router.push(targetUrl, { scroll: false });
       } else {
         // FROM PROJECT/INFORMATION: switching between views
         // First fade out the current gallery (keep showing old content)
         setAnimationPhase('gallery-fading-out');
+        console.log(`[Debug] phase → gallery-fading-out @ +${(performance.now() - t0).toFixed(0)}ms`);
         await new Promise(r => setTimeout(r, 300)); // Wait for fade-out
 
         // Now swap to new view
@@ -250,20 +323,23 @@ export function ProjectProvider({ children, projects }) {
         // Animate scroll back to top if needed
         if (!isAtTop) {
           setAnimationPhase('grid-animating');
+          console.log(`[Debug] phase → grid-animating @ +${(performance.now() - t0).toFixed(0)}ms`);
           smoothScrollTo(0, 800, materialEase);
           await new Promise(r => setTimeout(r, 800));
         }
 
         // Fade in the new gallery
         setAnimationPhase('gallery-fading-in');
+        console.log(`[Debug] phase → gallery-fading-in @ +${(performance.now() - t0).toFixed(0)}ms`);
         setIsSwitching(false);
         await new Promise(r => setTimeout(r, 300));
 
         setAnimationPhase('ready');
+        console.log(`[Debug] phase → ready @ +${(performance.now() - t0).toFixed(0)}ms`);
         router.push(targetUrl, { scroll: false });
       }
     }
-  }, [fetchProject, router, activeSlug, animationPhase]);
+  }, [fetchProject, router, activeSlug, animationPhase, cleanupPrewarmedVideo]);
 
   // Close gallery and go back to home with animated sequence
   // Also handles scrolling back to landing position when already on home page

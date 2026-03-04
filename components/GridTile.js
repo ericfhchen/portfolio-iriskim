@@ -8,11 +8,10 @@ import { useHover } from "@/context/HoverContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 export default function GridTile({ project, widthPercent, aspectRatio, onClick, onHover, isFirst, isLast }) {
-  const videoRef = useRef(null);
   const tileRef = useRef(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
-  const [videoReady, setVideoReady] = useState(false);
+  const [previewLoaded, setPreviewLoaded] = useState(false);
 
   const { hoveredProject, hoverSource, isHoverLocked, setTileHover, clearHover } = useHover();
   const isMobile = useIsMobile();
@@ -20,96 +19,39 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
   const projectSlug = project.slug.current;
   const isThisHovered = hoveredProject === projectSlug;
   const someOtherHovered = hoveredProject && hoveredProject !== projectSlug;
-  // Should autoplay when sidebar hovers this project
+  // Should show preview when sidebar hovers this project
   const shouldAutoplay = hoverSource === "sidebar" && isThisHovered && isNearViewport;
 
   const muxPlaybackId = project.muxPlaybackId;
-  // Use static rendition URL format (1080p.mp4 matches static_renditions config)
-  const videoSrc = muxPlaybackId
-    ? `https://stream.mux.com/${muxPlaybackId}/1080p.mp4`
+  // Animated WebP: 5-second loop at 480px wide (~200-500KB vs 3-8MB for 1080p MP4)
+  const previewSrc = muxPlaybackId
+    ? `https://image.mux.com/${muxPlaybackId}/animated.webp?start=0&end=5&width=480`
     : null;
 
   useEffect(() => {
     const el = tileRef.current;
-    if (!el || !videoSrc) return;
+    if (!el || !previewSrc) return;
 
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsNearViewport(entry.isIntersecting);
-        if (!entry.isIntersecting && videoRef.current && !videoRef.current.paused) {
-          videoRef.current.pause();
-          setVideoReady(false);
-        }
-      },
+      ([entry]) => setIsNearViewport(entry.isIntersecting),
       { rootMargin: "200px" }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [videoSrc]);
+  }, [previewSrc]);
 
   const handleMouseEnter = () => {
-    // Skip hover on mobile - first tap navigates directly
     if (isMobile) return;
-    // Skip hover during "keep browsing" scroll animation
     if (isHoverLocked) return;
-
     setIsHovering(true);
     setTileHover(projectSlug);
     onHover?.(project);
-    if (videoRef.current) {
-      videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(() => {});
-      if (videoRef.current.readyState >= 2) {
-        setVideoReady(true);
-      }
-    }
   };
 
   const handleMouseLeave = () => {
     setIsHovering(false);
-    setVideoReady(false);
     clearHover();
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
-    }
   };
-
-  // Autoplay when sidebar hovers this project
-  useEffect(() => {
-    if (shouldAutoplay && videoRef.current) {
-      videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(() => {});
-      if (videoRef.current.readyState >= 2) {
-        setVideoReady(true);
-      }
-    } else if (!shouldAutoplay && !isHovering && videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
-      setVideoReady(false);
-    }
-  }, [shouldAutoplay, isHovering]);
-
-  // Track video readiness via event listeners
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const onReady = () => setVideoReady(true);
-
-    // If already buffered (preload finished before hover)
-    if (video.readyState >= 2) {
-      setVideoReady(true);
-    }
-
-    video.addEventListener("loadeddata", onReady);
-    video.addEventListener("canplay", onReady);
-
-    return () => {
-      video.removeEventListener("loadeddata", onReady);
-      video.removeEventListener("canplay", onReady);
-    };
-  }, [videoSrc]);
 
   const handleClick = (e) => {
     if (onClick) {
@@ -122,10 +64,10 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
     ? urlFor(project.coverImage).width(800).quality(80).url()
     : null;
 
-  // Show video when this tile is hovered OR when sidebar hovers this project
-  // Gate on videoReady so cover image stays visible until first frame is decoded
-  const wantVideo = isHovering || shouldAutoplay;
-  const showVideo = wantVideo && videoReady;
+  // Show preview when this tile is hovered OR when sidebar hovers this project
+  // Gate on previewLoaded so cover image stays visible until animated WebP is decoded
+  const wantPreview = isHovering || shouldAutoplay;
+  const showPreview = wantPreview && previewLoaded;
   // Show title when this tile is hovered OR when sidebar highlights this project
   const showTitle = isHovering || isThisHovered;
 
@@ -163,7 +105,7 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
             alt={project.title}
             fill
             className={`object-cover transition-opacity duration-150 ${
-              showVideo && videoSrc ? "opacity-0" : "opacity-100"
+              showPreview ? "opacity-0" : "opacity-100"
             }`}
             sizes={`${widthPercent}vw`}
             onContextMenu={(e) => e.preventDefault()}
@@ -172,17 +114,16 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
           />
         )}
 
-        {videoSrc && (
-          <video
-            ref={videoRef}
-            src={videoSrc}
-            muted
-            loop
-            playsInline
-            preload={isNearViewport ? "auto" : "none"}
+        {previewSrc && isNearViewport && (
+          <img
+            src={previewSrc}
+            alt=""
+            onLoad={() => setPreviewLoaded(true)}
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${
-              showVideo ? "opacity-100" : "opacity-0"
+              showPreview ? "opacity-100" : "opacity-0"
             }`}
+            onContextMenu={(e) => e.preventDefault()}
+            onDragStart={(e) => e.preventDefault()}
           />
         )}
       </Link>

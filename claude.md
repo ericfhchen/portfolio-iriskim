@@ -29,7 +29,8 @@ import { freshClient } from "@/sanity/lib/client";
 ```
 
 ### HLS Video
-Force hls.js for ALL browsers (Safari ignores native quality hints, Chrome returns 'maybe' for HLS).
+Safari uses **native HLS** (`video.src = url.m3u8?min_resolution=720p`) for faster autoplay — hls.js is not loaded at all.
+Chrome/Firefox use **hls.js** for quality pinning (native HLS not supported). Detection: `canPlayType("application/vnd.apple.mpegurl")`.
 
 ---
 
@@ -147,35 +148,16 @@ At animation end: pin `el.style.transition = 'none'` and `el.style.paddingTop = 
 - `components/MediaGallery.js` — has debug imports from debugPerf
 - `lib/easing.js` — has debug imports from debugPerf
 
----
+### HLS Prefetch Timing — Adaptive Canplay Gate
+Fixed-delay prefetches are fragile. A 1.5s timer caused canplay regression from 2.7s→5.8s in dev because prefetches competed with AVFoundation's segment fetching (Safari uses NSURLSession, a separate network stack from `fetch()`, but they share bandwidth + CDN connection pool).
 
-## TODO: Animation Jank Fixes
+**Solution**: Gate prefetches on the main video's `canplay` event + 500ms buffer.
+- `VideoPlayer.js` has `onCanPlay` prop — fires when `canplay`/`canplaythrough` events trigger `handleReady`
+- `MediaGallery.js` tracks `mainVideoCanPlay` state, only passed to primary VideoPlayer (layer 0, id 0)
+- Prefetch `useEffect` depends on `[allowAutoPlay, mainVideoCanPlay]`
+- **Non-video fallback**: If first media item is an image, `handleInitialMediaReady` sets `mainVideoCanPlay=true` immediately so prefetches aren't blocked
 
-Work through these in order. Each is an independent fix. Test each by clicking a project from the grid and checking for smooth animation (no frame drops >20ms during the transition).
-
-### 1. Preload hls.js on page load
-**File:** `components/VideoPlayer.js`
-**Problem:** `import("hls.js")` at line 114 dynamically loads ~1.1MB during animation, blocking main thread for ~2s.
-**Fix:** Eagerly import hls.js at module level (`import Hls from "hls.js"`) or trigger the dynamic import on page load so it's cached before any project click. The HLS constructor/config can stay lazy — just ensure the module is already parsed.
-**Verify:** After fix, clicking a project should show 0 long tasks >100ms in the console. Use `PerformanceObserver` for `longtask` type to check.
-
-### 2. Defer HLS initialization until animation completes
-**File:** `components/VideoPlayer.js`, `components/MediaGallery.js`
-**Problem:** HLS `loadSource()` + `attachMedia()` + `startLoad()` run during `gallery-fading-in` phase, causing long tasks even after the module is cached.
-**Fix:** Don't start HLS loading until `allowAutoPlay` is true (which maps to `animationPhase === 'ready'`). The poster image already loads via the `useEffect` at line 78 — so the user sees the poster during the fade-in, then HLS initializes after `ready`. Pass a prop like `deferLoad` or gate `loadSource` behind `allowAutoPlay`.
-**Verify:** Long tasks should not appear during `gallery-fading-in` → `ready` transition.
-
-### 3. Add `loading="lazy"` or `decoding="async"` to thumbnail images
-**File:** `components/MediaGallery.js` (line 438)
-**Problem:** 24 `<img>` tags load eagerly and simultaneously, causing main-thread decode contention during animation.
-**Fix:** Add `decoding="async"` to each thumbnail `<img>` tag. This tells the browser to decode off the main thread. Optionally also add `loading="lazy"` for thumbnails not in the initial viewport (though all thumbnails are in a horizontal scroll container, so `decoding="async"` is the higher-impact fix).
-**Verify:** Image resource entries during animation should no longer cluster with 650–850ms decode durations.
-
-### 4. Remove debug instrumentation
-**Files:** `components/PortfolioShell.js`, `components/MediaGallery.js`, `lib/easing.js`, `lib/debugPerf.js`
-**Problem:** Debug imports and `perfFrame`/`perfMark`/`perfEnd` calls are still in production code.
-**Fix:** Remove all imports of `debugPerf.js` and all `perfFrame()`, `perfMark()`, `perfEnd()` calls from PortfolioShell, MediaGallery, and easing.js. Then delete `lib/debugPerf.js`. Search for `debugPerf` and `perfFrame\|perfMark\|perfEnd` to find all call sites.
-**Verify:** `grep -r "debugPerf\|perfFrame\|perfMark\|perfEnd" components/ lib/` returns nothing.
+**Key insight**: Never use fixed timers for network-dependent sequencing. CDN latency varies (cold: ~1s, warm: ~200ms). Signal-based gating adapts automatically.
 
 ---
 
