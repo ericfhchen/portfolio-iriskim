@@ -79,6 +79,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   const hideControlsTimeout = useRef(null);
   const hlsRef = useRef(null);
   const aspectRatioDetectedRef = useRef(false);
+  const isReadyRef = useRef(false);
 
   // Track mobile status for layout
   useEffect(() => {
@@ -141,6 +142,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     const handleReady = () => {
       console.log(`[Debug][VP:${playbackId?.slice(-6)}] canplay/canplaythrough fired @ +${(performance.now() - hlsStartTime).toFixed(0)}ms after HLS init, +${(performance.now() - mountTimeRef.current).toFixed(0)}ms after mount`);
       setIsReady(true);
+      isReadyRef.current = true;
       onCanPlayRef.current?.();
     };
     video.addEventListener("canplaythrough", handleReady);
@@ -389,6 +391,8 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     if (hideControlsTimeout.current) {
       clearTimeout(hideControlsTimeout.current);
     }
+    // Don't auto-hide controls while video is still loading
+    if (!isReadyRef.current) return;
     hideControlsTimeout.current = setTimeout(() => {
       if (videoRef.current && !videoRef.current.paused) {
         setShowControls(false);
@@ -503,7 +507,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
 
         {/* Controls overlay - positioned at bottom of the inline-block wrapper */}
         {/* Gate on hasAutoPlayed when autoplay is expected to prevent "play" button flash */}
-        {isReady && (!autoPlay || !allowAutoPlay || hasAutoPlayed) && (
+        {(!isReady || !autoPlay || !allowAutoPlay || hasAutoPlayed) && (
           <div
             style={{
               position: "absolute",
@@ -517,69 +521,82 @@ const VideoPlayer = forwardRef(function VideoPlayer({
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "white", fontSize: "9px" }}>
-              {/* Play/Pause - fixed width */}
-              <button
-                onClick={togglePlay}
-                className="cursor-pointer hover:opacity-70 transition-opacity"
-                style={{ width: "40px", textAlign: "left", padding: "8px 2px 8px 10px" }}
-              >
-                {isPlaying ? "pause" : "play"}
-              </button>
+              {!isReady ? (
+                <span style={{ padding: "8px 2px 8px 10px", opacity: 0.7 }}>loading...</span>
+              ) : (
+                <>
+                  {/* Play/Pause - fixed width */}
+                  <button
+                    onClick={togglePlay}
+                    className="cursor-pointer hover:opacity-70 transition-opacity"
+                    style={{ width: "40px", textAlign: "left", padding: "8px 2px 8px 10px" }}
+                  >
+                    {isPlaying ? "pause" : "play"}
+                  </button>
 
-              {/* Mute - fixed width, next to play */}
-              <button
-                onClick={toggleMute}
-                className="cursor-pointer hover:opacity-70 transition-opacity"
-                style={{ width: "38px", textAlign: "left", padding: "8px 2px" }}
-              >
-                {isMuted ? "unmute" : "mute"}
-              </button>
+                  {/* Mute - fixed width, next to play */}
+                  <button
+                    onClick={toggleMute}
+                    className="cursor-pointer hover:opacity-70 transition-opacity"
+                    style={{ width: "38px", textAlign: "left", padding: "8px 2px" }}
+                  >
+                    {isMuted ? "unmute" : "mute"}
+                  </button>
+                </>
+              )}
 
               {/* Progress bar */}
               <div
-                style={{ flex: 1, padding: "8px 2px", display: "flex", alignItems: "center", cursor: "pointer" }}
-                onClick={handleSeek}
+                style={{ flex: 1, padding: "8px 2px", display: "flex", alignItems: "center", cursor: isReady ? "pointer" : "default" }}
+                onClick={isReady ? handleSeek : undefined}
               >
                 <div
                   style={{ height: "1px", width: "100%", background: "rgba(255,255,255,0.4)", position: "relative" }}
                 >
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      height: "100%",
-                      background: "white",
-                      width: `${progress}%`,
-                      transition: "width 250ms linear",
-                    }}
-                  >
+                  {isReady && (
                     <div
                       style={{
                         position: "absolute",
-                        right: -2,
-                        top: "50%",
-                        width: 4,
-                        height: 4,
-                        borderRadius: "50%",
+                        top: 0,
+                        left: 0,
+                        height: "100%",
                         background: "white",
-                        transform: "translateY(-50%)",
+                        width: `${progress}%`,
+                        transition: "width 250ms linear",
                       }}
-                    />
-                  </div>
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          right: -2,
+                          top: "50%",
+                          width: 4,
+                          height: 4,
+                          borderRadius: "50%",
+                          background: "white",
+                          transform: "translateY(-50%)",
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Time - fixed width */}
               <span style={{ width: "64px", textAlign: "right", opacity: 0.7, fontVariantNumeric: "tabular-nums", padding: "8px 2px" }}>
-                {formatTime(currentTime)} / {formatTime(duration)}
+                {isReady ? `${formatTime(currentTime)} / ${formatTime(duration)}` : "--:-- / --:--"}
               </span>
 
               {/* Fullscreen - fixed width */}
               <button
-                onClick={toggleFullscreen}
-                className="cursor-pointer hover:opacity-70 transition-opacity"
-                style={{ width: "64px", textAlign: "right", padding: "8px 10px 8px 2px" }}
+                onClick={isReady ? toggleFullscreen : undefined}
+                className={isReady ? "cursor-pointer hover:opacity-70 transition-opacity" : ""}
+                style={{
+                  width: "64px",
+                  textAlign: "right",
+                  padding: "8px 10px 8px 2px",
+                  ...(isReady ? {} : { opacity: 0.3, pointerEvents: "none" }),
+                }}
               >
                 {isFullscreen ? "exit" : "fullscreen"}
               </button>
