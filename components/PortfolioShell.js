@@ -14,7 +14,6 @@ export default function PortfolioShell({ projects, initialProject, initialInform
   const galleryRef = useRef(null);
   const gridRef = useRef(null);
   const mediaGalleryRef = useRef(null);
-  const galleryInnerRef = useRef(null);
 
   const {
     activeSlug,
@@ -54,17 +53,6 @@ export default function PortfolioShell({ projects, initialProject, initialInform
   // Peek amount (15% of first row height) - needed for fixed gallery height
   const [peekAmount, setPeekAmount] = useState(0);
 
-  // Debug: ResizeObserver on gallery inner wrapper
-  useEffect(() => {
-    const el = galleryInnerRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver(entries => {
-      const { width, height } = entries[0].contentRect;
-      console.log(`[Debug][Shell] gallery inner RESIZED: ${Math.round(width)}x${Math.round(height)}, peekAmount=${peekAmount}`);
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [peekAmount]);
 
   // Ref to persist landing padding value even when showGallery is true
   // This allows grid-returning animation to have a valid target
@@ -975,7 +963,7 @@ export default function PortfolioShell({ projects, initialProject, initialInform
             overflow: 'hidden',
           }}
         >
-          <div ref={galleryInnerRef} style={{
+          <div style={{
             height: peekAmount ? `calc(100% - ${peekAmount}px)` : `calc(100% - ${isMobile ? '15svh' : '15dvh'})`,
             overflow: 'hidden',
           }}>

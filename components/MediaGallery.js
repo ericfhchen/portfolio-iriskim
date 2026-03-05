@@ -307,6 +307,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     };
   }, [thumbnailsReady]); // Recalculate when thumbnails finish loading
 
+
   // Cache main display bottom position for single-media projects (no thumbnail row)
   useEffect(() => {
     const updateMainDisplayBottom = () => {
@@ -402,7 +403,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   );
 
   return (
-    <div className={`w-full h-full flex flex-col ${isMobile ? 'p-2 pt-8 pb-32' : 'p-4'}`}>
+    <div className={`w-full h-full flex flex-col ${isMobile ? 'p-2 pt-12 pb-16' : 'p-4'}`}>
       {/* Credits at top on desktop */}
       {!isMobile && creditsContent}
 
