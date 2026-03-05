@@ -510,7 +510,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
               bottom: 0,
               left: 0,
               right: 0,
-              padding: "8px 10px 8px 10px",
+              padding: "0",
               opacity: showControls && !controlsDisabled ? 1 : 0,
               transition: "opacity 300ms",
               pointerEvents: showControls && !controlsDisabled ? "auto" : "none",
@@ -521,7 +521,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
               <button
                 onClick={togglePlay}
                 className="cursor-pointer hover:opacity-70 transition-opacity"
-                style={{ width: "28px", textAlign: "left" }}
+                style={{ width: "40px", textAlign: "left", padding: "8px 2px 8px 10px" }}
               >
                 {isPlaying ? "pause" : "play"}
               </button>
@@ -530,31 +530,48 @@ const VideoPlayer = forwardRef(function VideoPlayer({
               <button
                 onClick={toggleMute}
                 className="cursor-pointer hover:opacity-70 transition-opacity"
-                style={{ width: "34px", textAlign: "left" }}
+                style={{ width: "38px", textAlign: "left", padding: "8px 2px" }}
               >
                 {isMuted ? "unmute" : "mute"}
               </button>
 
               {/* Progress bar */}
               <div
-                style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.4)", position: "relative", cursor: "pointer" }}
+                style={{ flex: 1, padding: "8px 2px", display: "flex", alignItems: "center", cursor: "pointer" }}
                 onClick={handleSeek}
               >
                 <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    height: "100%",
-                    background: "white",
-                    width: `${progress}%`,
-                    transition: "width 250ms linear",
-                  }}
-                />
+                  style={{ height: "1px", width: "100%", background: "rgba(255,255,255,0.4)", position: "relative" }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      height: "100%",
+                      background: "white",
+                      width: `${progress}%`,
+                      transition: "width 250ms linear",
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: -2,
+                        top: "50%",
+                        width: 4,
+                        height: 4,
+                        borderRadius: "50%",
+                        background: "white",
+                        transform: "translateY(-50%)",
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Time - fixed width */}
-              <span style={{ width: "60px", textAlign: "right", opacity: 0.7, fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ width: "64px", textAlign: "right", opacity: 0.7, fontVariantNumeric: "tabular-nums", padding: "8px 2px" }}>
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
 
@@ -562,7 +579,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
               <button
                 onClick={toggleFullscreen}
                 className="cursor-pointer hover:opacity-70 transition-opacity"
-                style={{ width: "52px", textAlign: "right" }}
+                style={{ width: "64px", textAlign: "right", padding: "8px 10px 8px 2px" }}
               >
                 {isFullscreen ? "exit" : "fullscreen"}
               </button>

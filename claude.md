@@ -7,7 +7,9 @@ Portfolio site for Iris Kim using Next.js 15 and Sanity CMS.
 | Purpose | File |
 |---------|------|
 | Main shell + grid + animations | `components/PortfolioShell.js` |
+| Grid tile + hover preview | `components/GridTile.js` |
 | Media gallery + thumbnails | `components/MediaGallery.js` |
+| Video (HLS/native) | `components/VideoPlayer.js` |
 | Sidebar + hover | `components/SidebarClient.js` |
 | Project state & URL sync | `context/ProjectContext.js` |
 | Hover state + scroll handler | `context/HoverContext.js` |
@@ -28,9 +30,11 @@ style={{ opacity: condition ? 0.3 : 1, transition: "opacity 300ms" }}
 import { freshClient } from "@/sanity/lib/client";
 ```
 
-### HLS Video
-Safari uses **native HLS** (`video.src = url.m3u8?min_resolution=720p`) for faster autoplay — hls.js is not loaded at all.
-Chrome/Firefox use **hls.js** for quality pinning (native HLS not supported). Detection: `canPlayType("application/vnd.apple.mpegurl")`.
+### HLS Video (`VideoPlayer.js`)
+- `useNativeHLS` exported const — detects Safari via `navigator.vendor === "Apple Computer, Inc."` + `canPlayType` check
+- **Safari**: native HLS (`video.src = url.m3u8?min_resolution=720p`), hls.js module never imported
+- **Chrome/Firefox**: hls.js for quality pinning, preloaded at module level (`const hlsModulePromise = import("hls.js")`)
+- `ProjectContext.js` pre-warms Safari's AVFoundation pipeline via a hidden `<video>` element on project click
 
 ---
 
@@ -47,6 +51,26 @@ if (!canScrollInDirection) {
   return;
 }
 ```
+
+---
+
+## Grid Tile Hover Preview (`GridTile.js`)
+
+Uses Mux animated WebP for hover previews (replaced MP4 video in Mar 2026).
+
+**URL**: `https://image.mux.com/${muxPlaybackId}/animated.webp?start=0&end=5&width=480`
+
+### Current behavior
+- `isNearViewport` (IntersectionObserver, 200px margin) mounts `<img>` for all visible tiles
+- `previewLoaded` gate: cover image stays visible until WebP `onLoad` fires, preventing blank tiles
+- Sidebar hover (`shouldAutoplay`) also triggers preview display
+
+### Known issue: Thundering herd on production Safari
+All near-viewport tiles (~26) start downloading animated WebPs simultaneously on page load. HAR analysis (Mar 2026):
+- **55MB total** concurrent downloads (median file size 1.2MB, not 200-500KB as expected)
+- **Median download time: 8.8s** per file due to bandwidth saturation
+- **48 requests** for 26 tiles (duplicates from IntersectionObserver toggle unmount/remount)
+- **Fix needed**: Load on hover only (not eagerly), reduce WebP params (`width=320&fps=12`)
 
 ---
 
@@ -125,39 +149,23 @@ At animation end: pin `el.style.transition = 'none'` and `el.style.paddingTop = 
 
 ---
 
-## Performance Investigation Results (Feb 2026)
+## Performance Notes
 
-**JS code paths are fast** (<2ms per frame). Jank comes from browser-level work during `gallery-fading-in` phase.
+### Gallery fade-in jank (Feb 2026)
+JS code paths are fast (<2ms/frame). Jank from browser-level work:
+1. ~~**HLS.js dynamic import**~~ — **FIXED**: now preloaded at module level, skipped entirely on Safari
+2. **24 thumbnails loading simultaneously** — still present, plain `<img>` tags decode all at once
+3. **81 opacity layers** — minor, creates compositor layers
 
-### Root causes identified
-
-1. **HLS.js dynamic import + init (PRIMARY)** — `import("hls.js")` in `VideoPlayer.js:114` loads ~1.1MB JS during the animation. Parsing + executing causes 4 long tasks of 130–172ms each, then HLS manifest/media attachment adds 8+ more long tasks of 50–76ms. Total: ~2s blocked main thread.
-2. **24 thumbnail images loading simultaneously** — `MediaGallery.js:438` uses plain `<img>` tags (no lazy loading). All 24 thumbnails start decoding at once during `gallery-fading-in`, each taking 650–850ms.
-3. **81 opacity layers** — minor contributor but worth noting: 81 elements have non-1 opacity creating compositor layers.
-
-### Ruled out
-- JS animation code (RAF work <2ms/frame)
-- React re-renders (only 8 DOM mutation batches during animation)
-- `will-change`/transform layers (only 1 on page)
-- CSS padding transition (secondary at most)
-- `getBoundingClientRect`, `querySelector`, Newton-Raphson easing — all negligible
-
-### Debug instrumentation files (can be removed)
+### Debug instrumentation (can be removed)
 - `lib/debugPerf.js` — shared frame timing utility, gated behind `window.__PERF_DEBUG = true`
-- `components/PortfolioShell.js` — has debug imports from debugPerf
-- `components/MediaGallery.js` — has debug imports from debugPerf
-- `lib/easing.js` — has debug imports from debugPerf
+- Debug imports in: `PortfolioShell.js`, `MediaGallery.js`, `lib/easing.js`
 
-### HLS Prefetch Timing — Adaptive Canplay Gate
-Fixed-delay prefetches are fragile. A 1.5s timer caused canplay regression from 2.7s→5.8s in dev because prefetches competed with AVFoundation's segment fetching (Safari uses NSURLSession, a separate network stack from `fetch()`, but they share bandwidth + CDN connection pool).
-
-**Solution**: Gate prefetches on the main video's `canplay` event + 500ms buffer.
-- `VideoPlayer.js` has `onCanPlay` prop — fires when `canplay`/`canplaythrough` events trigger `handleReady`
-- `MediaGallery.js` tracks `mainVideoCanPlay` state, only passed to primary VideoPlayer (layer 0, id 0)
-- Prefetch `useEffect` depends on `[allowAutoPlay, mainVideoCanPlay]`
-- **Non-video fallback**: If first media item is an image, `handleInitialMediaReady` sets `mainVideoCanPlay=true` immediately so prefetches aren't blocked
-
-**Key insight**: Never use fixed timers for network-dependent sequencing. CDN latency varies (cold: ~1s, warm: ~200ms). Signal-based gating adapts automatically.
+### HLS Prefetch — Adaptive Canplay Gate
+Never use fixed timers for network-dependent sequencing. Gate prefetches on signals:
+- `MediaGallery.js` tracks `mainVideoCanPlay` state, gates thumbnail prefetch on it
+- Non-video fallback: if first media is an image, `mainVideoCanPlay=true` immediately
+- CDN latency varies (cold: ~1s, warm: ~200ms) — signal-based gating adapts automatically
 
 ---
 
