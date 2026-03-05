@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useRef, useState, useEffect, useLayoutEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 
 // Detect Safari (desktop + iOS) for native HLS playback.
 // Native HLS is faster than hls.js + MSE on Safari because Safari's MSE
@@ -96,6 +96,43 @@ const VideoPlayer = forwardRef(function VideoPlayer({
   // finalAspectRatio: prefer Sanity data, fall back to poster-detected ratio
   const finalAspectRatio = parsedAspectRatio || detectedAspectRatio;
 
+  // JS-computed wrapper dimensions: replaces inline-block + width:auto + aspectRatio
+  // which Safari sizes from <video> intrinsic dims (300x150 → poster → HLS metadata → jumps).
+  // Instead, we measure the container and compute deterministic width/height from the AR.
+  const [wrapperSize, setWrapperSize] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!finalAspectRatio || isFullscreen) {
+      setWrapperSize(null);
+      return;
+    }
+    const container = containerRef.current;
+    if (!container) return;
+
+    const compute = () => {
+      const cw = container.clientWidth;
+      const ch = container.clientHeight;
+      if (!cw || !ch) return;
+      let w, h;
+      if (cw / ch > finalAspectRatio) {
+        // Height-constrained (container wider than video AR)
+        h = ch;
+        w = Math.round(ch * finalAspectRatio);
+      } else {
+        // Width-constrained (container taller than video AR)
+        w = cw;
+        h = Math.round(cw / finalAspectRatio);
+      }
+      setWrapperSize({ width: w, height: h });
+    };
+
+    compute(); // Synchronous initial measurement (useLayoutEffect = before paint)
+
+    const obs = new ResizeObserver(compute);
+    obs.observe(container);
+    return () => obs.disconnect();
+  }, [finalAspectRatio, isFullscreen]);
+
   const src = `https://stream.mux.com/${playbackId}.m3u8`;
   const poster = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=0`;
 
@@ -140,7 +177,6 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     // 'canplay' but delays 'canplaythrough', causing the video to stay invisible
     const hlsStartTime = performance.now();
     const handleReady = () => {
-      console.log(`[Debug][VP:${playbackId?.slice(-6)}] canplay/canplaythrough fired @ +${(performance.now() - hlsStartTime).toFixed(0)}ms after HLS init, +${(performance.now() - mountTimeRef.current).toFixed(0)}ms after mount`);
       setIsReady(true);
       isReadyRef.current = true;
       onCanPlayRef.current?.();
@@ -437,32 +473,22 @@ const VideoPlayer = forwardRef(function VideoPlayer({
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
-  // Calculate wrapper dimensions using aspect ratio
-  // Keep consistent sizing before AND after video loads to prevent resize jump
-  // When fullscreen, fill the container and let video use object-fit: contain
-  // Use 100% height to respect flex container, not fixed vh units
+  const wrapperRef = useRef(null);
+
+  // Wrapper sizing: JS-computed from container dims + aspect ratio.
+  // Fullscreen: flex fill. Computed: deterministic width/height (no Safari intrinsic jumps).
+  // Fallback (before first measurement): old CSS aspectRatio approach.
   const wrapperStyle = {
     position: "relative",
-    display: isFullscreen ? "flex" : "inline-block",
-    justifyContent: "center",
-    alignItems: "center",
     ...(isFullscreen
-      ? { width: "100%", height: "100%" }
-      : { maxHeight: "100%", maxWidth: "100%" }
+      ? { display: "flex", justifyContent: "center", alignItems: "center", width: "100%", height: "100%" }
+      : wrapperSize
+        ? { width: wrapperSize.width, height: wrapperSize.height }
+        : finalAspectRatio
+          ? { aspectRatio: finalAspectRatio, maxHeight: "100%", maxWidth: "100%", width: "auto" }
+          : { maxHeight: "100%", maxWidth: "100%" }
     ),
   };
-
-  // Always apply aspect ratio sizing if available (not just before ready)
-  // But NOT in fullscreen mode - let video fill the screen
-  // Use finalAspectRatio which includes both Sanity data AND detected ratio from video metadata
-  if (!isFullscreen && finalAspectRatio) {
-    wrapperStyle.aspectRatio = finalAspectRatio;
-    // Use maxHeight instead of height so wrapper sizes to video's intrinsic size
-    // but never exceeds container. This fixes: top-alignment, controls positioning,
-    // and prevents whitespace clicks from triggering play/pause
-    wrapperStyle.maxHeight = "100%";
-    wrapperStyle.width = "auto";
-  }
 
   return (
     <div
@@ -478,7 +504,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       onMouseEnter={resetHideTimer}
     >
       {/* Wrapper that sizes to video and positions controls */}
-      <div style={wrapperStyle}>
+      <div ref={wrapperRef} style={wrapperStyle}>
         <video
           ref={videoRef}
           poster={poster}
