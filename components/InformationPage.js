@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { PortableText } from "@portabletext/react";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -145,8 +145,12 @@ const portableTextComponents = {
   },
 };
 
-export default function InformationPage({ settings }) {
-  const isMobile = useIsMobile();
+export default function InformationPage({ settings, isMobile: isMobileProp }) {
+  // Use prop from PortfolioShell (already settled) to avoid layout shift on mount.
+  // Falls back to hook for standalone usage, but prop should always be provided.
+  const isMobileHook = useIsMobile();
+  const isMobile = isMobileProp ?? isMobileHook;
+
   const { informationImage, bio, contactLinks } = settings || {};
 
   // Track viewport height for responsive column stacking
@@ -167,9 +171,24 @@ export default function InformationPage({ settings }) {
   const imageWidth = imageDimensions?.width || 1200;
   const imageHeight = imageDimensions?.height || 800;
 
+  // Gate content visibility on image load so text and image fade in together
+  const [imageReady, setImageReady] = useState(!imageUrl); // true immediately if no image
+  const onImageLoad = useCallback(() => setImageReady(true), []);
+
+  // Fallback timeout — show content even if image is slow
+  useEffect(() => {
+    if (imageReady || !imageUrl) return;
+    const timer = setTimeout(() => setImageReady(true), 1500);
+    return () => clearTimeout(timer);
+  }, [imageReady, imageUrl]);
+
   return (
     <div
       className={`w-full h-full flex flex-col overflow-y-auto ${isMobile ? "p-2 pt-12" : "p-4"}`}
+      style={{
+        opacity: imageReady ? 1 : 0,
+        transition: "opacity 300ms ease-out",
+      }}
     >
       {/* Image */}
       {imageUrl && (
@@ -184,6 +203,7 @@ export default function InformationPage({ settings }) {
             alt={settings?.name || ""}
             width={imageWidth}
             height={imageHeight}
+            onLoad={onImageLoad}
             onContextMenu={(e) => e.preventDefault()}
             onDragStart={(e) => e.preventDefault()}
             style={{
