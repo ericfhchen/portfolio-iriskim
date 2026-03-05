@@ -1,10 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, useMemo } from "react";
-import Image from "next/image";
 import { urlFor } from "@/sanity/lib/image";
 import VideoPlayer from "./VideoPlayer";
 import { useIsMobile } from "@/hooks/useIsMobile";
+
+// Build direct Sanity CDN URL for gallery display images (bypasses /_next/image)
+function galleryImageUrl(item) {
+  return urlFor(item).width(1400).quality(80).auto("format").url();
+}
 
 const SCROLL_SPEED = 250; // pixels per second
 const HOVER_ZONE_WIDTH = 70; // px - matches gradient width
@@ -45,6 +49,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   // Each layer: { index, opacity, zIndex, id }
   const [layers, setLayers] = useState([{ index: 0, opacity: 0, zIndex: 0, id: 0 }]);
   const transitioningRef = useRef(false);
+  const transitionStartRef = useRef(null);
   const layerIdRef = useRef(1);
 
   // Thumbnail loading coordination - fade all in together with main media
@@ -137,10 +142,33 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
     return () => clearTimeout(timer);
   }, [initialMediaReady]);
 
+  // Preload adjacent gallery images into browser cache
+  const preloadAdjacentImages = useCallback((currentIndex) => {
+    const indices = [
+      (currentIndex - 1 + media.length) % media.length,
+      (currentIndex + 1) % media.length,
+    ];
+    indices.forEach(i => {
+      const item = media[i];
+      if (item?._type === "image") {
+        const img = new window.Image();
+        img.src = galleryImageUrl(item);
+      }
+    });
+  }, [media]);
+
+  // Preload adjacent images on initial mount once first image is ready
+  useEffect(() => {
+    if (initialMediaReady && media.length > 1) {
+      preloadAdjacentImages(0);
+    }
+  }, [initialMediaReady, media.length, preloadAdjacentImages]);
+
   // Handle layer ready (image loaded or video ready)
   // Old layer already faded out in startTransition, just fade in new layer
   const handleLayerReady = useCallback((layerId) => {
-    console.log(`[Debug][MG] handleLayerReady(id=${layerId}) → fade in crossfade layer @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
+    const elapsed = transitionStartRef.current ? (performance.now() - transitionStartRef.current).toFixed(0) : '?';
+    console.log(`[Crossfade] READY: layer ${layerId} @ ${elapsed}ms`);
     // Fade in the new layer
     setLayers(prev => {
       const newLayer = prev.find(l => l.id === layerId);
@@ -153,24 +181,26 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
       );
     });
 
-    // After fade in completes, clean up old layer
+    // After fade in completes, clean up old layer and preload next adjacent images
     setTimeout(() => {
       console.log(`[Debug][MG] crossfade collapse: layer ${layerId} → zIndex=0, transitioning=false @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
       setLayers(prev => {
         const topLayer = prev.find(l => l.zIndex === 1);
         if (!topLayer) return prev;
         transitioningRef.current = false;
+        preloadAdjacentImages(topLayer.index);
         return [{ ...topLayer, zIndex: 0 }];
       });
     }, 200);
-  }, []);
+  }, [preloadAdjacentImages]);
 
   // Start a transition to a new index
   const startTransition = useCallback((targetIndex) => {
     if (transitioningRef.current) return;
     if (targetIndex === activeIndex) return;
 
-    console.log(`[Debug][MG] startTransition: ${activeIndex} → ${targetIndex}, type=${media[targetIndex]?._type} @ +${(performance.now() - mgMountTime.current).toFixed(0)}ms`);
+    console.log(`[Crossfade] START: ${activeIndex} → ${targetIndex}, type=${media[targetIndex]?._type}`);
+    transitionStartRef.current = performance.now();
     transitioningRef.current = true;
     const newLayerId = layerIdRef.current++;
 
@@ -416,14 +446,19 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
                 />
               ) : item._type === "image" ? (
                 <div className="relative w-full h-full">
-                  <Image
-                    src={urlFor(item).width(1400).quality(90).url()}
+                  <img
+                    src={galleryImageUrl(item)}
                     alt={project.title}
-                    fill
                     className={`object-contain ${isMobile ? 'object-left' : 'object-left-top'}`}
                     onContextMenu={(e) => e.preventDefault()}
                     onDragStart={(e) => e.preventDefault()}
-                    style={{ WebkitTouchCallout: "none", userSelect: "none" }}
+                    style={{
+                      position: "absolute",
+                      width: "100%",
+                      height: "100%",
+                      WebkitTouchCallout: "none",
+                      userSelect: "none",
+                    }}
                     onLoad={
                       layer.zIndex === 1
                         ? () => handleLayerReady(layer.id)
