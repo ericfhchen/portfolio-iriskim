@@ -396,7 +396,7 @@ const MediaGallery = forwardRef(function MediaGallery({ project, allowAutoPlay =
   const creditsContent = (
     <div className={isMobile ? "mt-2 mb-1" : "mb-2 flex-shrink-0"}>
       <span>
-        {project.title}. {project.year}.
+        {project.title}.
         {renderCaptionInline(project.caption) && ` ${renderCaptionInline(project.caption)}`}
       </span>
     </div>

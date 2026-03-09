@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Studio | Iris Kim",
+  title: "studio | iris kim",
   description: "Content Management",
 };
 

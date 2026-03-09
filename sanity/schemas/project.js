@@ -37,7 +37,6 @@ export default defineType({
       name: "year",
       title: "Year",
       type: "number",
-      validation: (rule) => rule.required(),
     }),
     defineField({
       name: "tileSize",
@@ -78,10 +77,10 @@ export default defineType({
     }),
   ],
   preview: {
-    select: { title: "title", year: "year", media: "coverImage" },
-    prepare({ title, year, media }) {
+    select: { title: "title", media: "coverImage" },
+    prepare({ title, media }) {
       return {
-        title: `${title} (${year || "?"})`,
+        title,
         media,
       };
     },

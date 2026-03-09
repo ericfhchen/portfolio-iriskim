@@ -128,13 +128,13 @@ export default function GridTile({ project, widthPercent, aspectRatio, onClick, 
         )}
       </Link>
 
-      {/* Role and year below tile - visible on hover */}
+      {/* Role below tile - visible on hover */}
       <div
         className={`mt-[2px] h-5 transition-opacity duration-300 ${
           showTitle ? "opacity-100" : "opacity-0"
         }`}
       >
-        <span>{project.role}{project.role && project.year ? ", " : ""}{project.year}</span>
+        <span>{project.role}</span>
       </div>
     </div>
   );

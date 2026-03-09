@@ -41,7 +41,7 @@ export async function generateMetadata({ searchParams }) {
     const settings = await freshClient.fetch(siteSettingsQuery);
     const bioText = extractPlainText(settings?.bio) || undefined;
     return {
-      title: "Information",
+      title: "information",
       description: bioText ? bioText.slice(0, 155) : undefined,
     };
   }
