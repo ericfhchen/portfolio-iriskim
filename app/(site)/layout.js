@@ -1,10 +1,12 @@
 import "@/app/site.css";
-import { freshClient } from "@/sanity/lib/client";
+import { client } from "@/sanity/lib/client";
 import { siteSettingsQuery, allProjectsQuery } from "@/sanity/lib/queries";
 import SiteLayoutClient from "@/components/SiteLayoutClient";
 
+export const revalidate = 60;
+
 export async function generateMetadata() {
-  const settings = await freshClient.fetch(siteSettingsQuery);
+  const settings = await client.fetch(siteSettingsQuery);
   if (!settings) return {};
 
   const title = settings.metaTitle || settings.name || "iris kim";
@@ -38,10 +40,10 @@ export async function generateMetadata() {
 }
 
 export default async function SiteLayout({ children }) {
-  // Use freshClient to bypass CDN cache - ensures new uploads appear immediately
+  // CDN client + ISR (revalidate=60) — webhook handles immediate revalidation on publish
   const [settings, projects] = await Promise.all([
-    freshClient.fetch(siteSettingsQuery),
-    freshClient.fetch(allProjectsQuery),
+    client.fetch(siteSettingsQuery),
+    client.fetch(allProjectsQuery),
   ]);
 
   const siteUrl = settings?.siteUrl || "https://iriskim.co";

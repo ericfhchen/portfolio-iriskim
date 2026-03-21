@@ -1,6 +1,8 @@
-import { freshClient } from "@/sanity/lib/client";
+import { client } from "@/sanity/lib/client";
 import { allProjectsQuery, projectDetailQuery, siteSettingsQuery } from "@/sanity/lib/queries";
 import PortfolioShell from "@/components/PortfolioShell";
+
+export const revalidate = 60;
 
 function extractPlainText(portableText) {
   if (!portableText || !Array.isArray(portableText)) return "";
@@ -19,7 +21,7 @@ export async function generateMetadata({ searchParams }) {
   const showInformation = "information" in params;
 
   if (projectSlug) {
-    const project = await freshClient.fetch(projectDetailQuery, { slug: projectSlug });
+    const project = await client.fetch(projectDetailQuery, { slug: projectSlug });
     if (project) {
       const description = extractPlainText(project.caption) || undefined;
 
@@ -38,7 +40,7 @@ export async function generateMetadata({ searchParams }) {
   }
 
   if (showInformation) {
-    const settings = await freshClient.fetch(siteSettingsQuery);
+    const settings = await client.fetch(siteSettingsQuery);
     const bioText = extractPlainText(settings?.bio) || undefined;
     return {
       title: "information",
@@ -54,15 +56,15 @@ export default async function HomePage({ searchParams }) {
   const projectSlug = params.project;
   const showInformation = "information" in params;
 
-  // Use freshClient to bypass CDN cache - ensures new uploads appear immediately
+  // CDN client + ISR (revalidate=60) — webhook handles immediate revalidation on publish
   const [projects, settings] = await Promise.all([
-    freshClient.fetch(allProjectsQuery),
-    freshClient.fetch(siteSettingsQuery),
+    client.fetch(allProjectsQuery),
+    client.fetch(siteSettingsQuery),
   ]);
 
   let initialProject = null;
   if (projectSlug) {
-    initialProject = await freshClient.fetch(projectDetailQuery, { slug: projectSlug });
+    initialProject = await client.fetch(projectDetailQuery, { slug: projectSlug });
   }
 
   return (
